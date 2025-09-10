@@ -155,8 +155,6 @@ class Lexer(private val source: String) {
         throw new LexerError(s"Unexpected character '$c' at $startLocation")
 }
 
-class LexerError(message: String) extends RuntimeException(message)
-
 object Lexer:
   def tokenize(source: String): List[Token] =
     val lexer = new Lexer(source)

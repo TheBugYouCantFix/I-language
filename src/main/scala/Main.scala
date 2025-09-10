@@ -1,8 +1,8 @@
-import lexer.Lexer
+import lexer.LexerF
 
 object Main:
   def main(args: Array[String]): Unit =
-    val res = Lexer.tokenize(
+    val res = LexerF.tokenize(
       """
         var a : integer is 10
         var b is 20
