@@ -36,6 +36,7 @@ enum TokenType:
   case False
 
   // Symbols & Operators
+  case Dot
   case Colon
   case Semicolon
   case Comma

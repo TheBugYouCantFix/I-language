@@ -55,29 +55,21 @@ object LexerF:
   def tokenize(source: String): Either[LexerError, List[Token]] =
     @tailrec
     def loop(state: LexerState, acc: List[Token]): Either[LexerError, List[Token]] =
-      skipWhitespace(state) match
-        case Right((newState, tokens)) if tokens.nonEmpty =>
-          loop(newState, acc ++ tokens)
-        case Right((newState, _)) =>
-          newState.currentChar match
-            case None => Right(acc.reverse)
-            case Some(_) =>
-              nextToken(newState) match
-                case Right((nextState, token)) => loop(nextState, token :: acc)
-                case Left(error) => Left(error)
-        case Left(error) => Left(error)
+      val newState = skipWhitespace(state)
+      newState.currentChar match
+        case None => Right(acc.reverse)
+        case Some(_) =>
+          nextToken(newState) match
+            case Right((nextState, token)) => loop(nextState, token :: acc)
+            case Left(error) => Left(error)
 
     loop(LexerState(source), Nil)
 
-  private def skipWhitespace(state: LexerState): Either[LexerError, (LexerState, List[Token])] =
-    @tailrec
-    def skip(current: LexerState): LexerState =
-      current.currentChar match
-        case Some(c) if c.isWhitespace => skip(current.advance)
-        case _ => current
-
-    val newState = skip(state)
-    Right((newState, Nil))
+  @tailrec
+  def skipWhitespace(current: LexerState): LexerState =
+    current.currentChar match
+      case Some(c) if c.isWhitespace => skipWhitespace(current.advance)
+      case _ => current
 
   private def nextToken(state: LexerState): Either[LexerError, (LexerState, Token)] =
     val location = state.currentLocation
@@ -147,8 +139,7 @@ object LexerF:
         (afterFirstDot.currentChar, afterFirstDot.peekAhead(1)) match
           case (Some('.'), Some('.')) =>
             Right((afterFirstDot.advanceN(2), Token(TokenType.RangeOp, "...", startLocation)))
-          case _ =>
-            Left(LexerError(s"Unexpected character '.' at $startLocation"))
+          case _ => Right((state.advance, Token(TokenType.Dot, ".", startLocation)))
 
       case Some('/') =>
         state.peekAhead(1) match
