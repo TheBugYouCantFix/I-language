@@ -1,6 +1,6 @@
 package lexer
 
-case class Position(
+case class Location(
                      line: Int,
                      index: Int
                    )
@@ -8,5 +8,5 @@ case class Position(
 case class Token(
                   tkType: TokenType,
                   value: String,
-                  position: Position
+                  position: Location
                 )
