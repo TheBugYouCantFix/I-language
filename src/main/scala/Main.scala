@@ -1,8 +1,8 @@
-import lexer.LexerF
+import lexer.{Lexer, Token}
 
 object Main:
   def main(args: Array[String]): Unit =
-    val res = LexerF.tokenize(
+    lexerShowcase(
       """
         var a : integer is 10
         var b is 20
@@ -13,4 +13,11 @@ object Main:
         """.stripMargin
     )
 
-    println(res)
+  private def lexerShowcase(source: String) =
+    Lexer.tokenize(source).foreach {
+      case Token(tkType, value, location) =>
+        println("Token:")
+        println(s" - type: $tkType")
+        println(s" - value: $value")
+        println(s" - position: $location")
+    }
