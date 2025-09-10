@@ -22,7 +22,7 @@ case class LexerState(
   def advanceN(n: Int): LexerState =
     (1 to n).foldLeft(this)((state, _) => state.advance)
 
-  def currentLocation: Location = Location(line, column)
+  def currentLocation: Position = Position(line, column)
 
   def substring(start: Int): String = source.substring(start, pos)
 
@@ -87,7 +87,7 @@ object LexerF:
       case Some(c) if c.isDigit => lexNumber(state, location)
       case Some(_) => lexSymbolOrOperator(state, location)
 
-  private def lexIdentifierOrKeyword(state: LexerState, startLocation: Location): Either[LexerError, (LexerState, Token)] =
+  private def lexIdentifierOrKeyword(state: LexerState, startLocation: Position): Either[LexerError, (LexerState, Token)] =
     @tailrec
     def consumeLetters(current: LexerState): LexerState =
       current.currentChar match
@@ -101,7 +101,7 @@ object LexerF:
 
     Right((endState, Token(tokenType, lexeme, startLocation)))
 
-  private def lexNumber(state: LexerState, startLocation: Location): Either[LexerError, (LexerState, Token)] =
+  private def lexNumber(state: LexerState, startLocation: Position): Either[LexerError, (LexerState, Token)] =
     @tailrec
     def consumeDigits(current: LexerState): LexerState =
       current.currentChar match
@@ -123,7 +123,7 @@ object LexerF:
 
     Right((endState, Token(tokenType, lexeme, startLocation)))
 
-  private def lexSymbolOrOperator(state: LexerState, startLocation: Location): Either[LexerError, (LexerState, Token)] =
+  private def lexSymbolOrOperator(state: LexerState, startLocation: Position): Either[LexerError, (LexerState, Token)] =
     state.currentChar match
       case Some(':') =>
         val afterColon = state.advance

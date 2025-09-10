@@ -51,7 +51,7 @@ class Lexer(private val source: String) {
     while (peekChar.exists(c => c.isWhitespace))
       consumeChar()
 
-  private def currentLocation: Location = Location(line, column)
+  private def currentLocation: Position = Position(line, column)
 
   def nextToken(): Token =
     skipWhitespace()
@@ -66,7 +66,7 @@ class Lexer(private val source: String) {
         else if (c.isDigit) lexNumber(location)
         else lexSymbolOrOperator(location)
 
-  private def lexIdentifierOrKeyword(startLocation: Location): Token =
+  private def lexIdentifierOrKeyword(startLocation: Position): Token =
     val startPos = pos
     while (peekChar.exists(c => c.isLetterOrDigit || c == '_'))
       consumeChar()
@@ -76,7 +76,7 @@ class Lexer(private val source: String) {
 
     Token(tokenType, lexeme, startLocation)
 
-  private def lexNumber(startLocation: Location): Token =
+  private def lexNumber(startLocation: Position): Token =
     val startPos = pos
     var isReal = false
 
@@ -96,7 +96,7 @@ class Lexer(private val source: String) {
 
     Token(tokenType, lexeme, startLocation)
 
-  private def lexSymbolOrOperator(startLocation: Location): Token =
+  private def lexSymbolOrOperator(startLocation: Position): Token =
     peekChar.get match
       case ':' =>
         consumeChar()

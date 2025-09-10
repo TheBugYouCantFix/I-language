@@ -1,12 +1,12 @@
 package lexer
 
-case class Location(
-                   line: Int,
-                   column: Int
+case class Position(
+                     line: Int,
+                     index: Int
                    )
 
 case class Token(
-                tkType: TokenType,
-                value: String,
-                location: Location
+                  tkType: TokenType,
+                  value: String,
+                  position: Position
                 )
