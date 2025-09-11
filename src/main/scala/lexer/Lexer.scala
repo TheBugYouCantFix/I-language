@@ -1,6 +1,7 @@
 package lexer
 
 import scala.annotation.tailrec
+import cats.implicits.*
 
 case class LexerState(
                        source: String,
@@ -66,7 +67,7 @@ object Lexer:
     loop(LexerState(source), Nil)
 
   @tailrec
-  def skipWhitespace(current: LexerState): LexerState =
+  private def skipWhitespace(current: LexerState): LexerState =
     current.currentChar match
       case Some(c) if c.isWhitespace => skipWhitespace(current.advance)
       case _ => current
@@ -95,25 +96,29 @@ object Lexer:
 
   private def lexNumber(state: LexerState, startLocation: Location): Either[LexerError, (LexerState, Token)] =
     @tailrec
-    def consumeDigits(current: LexerState): LexerState =
+    def consumeDigits(current: LexerState): Either[LexerError, LexerState] =
       current.currentChar match
         case Some(c) if c.isDigit => consumeDigits(current.advance)
-        case _ => current
+        case Some(c) if c == '.' => Left(LexerError("Unallowed use of '.'"))
+        case _ => Right(current)
 
     val startPos = state.pos
-    val afterDigits = consumeDigits(state)
+    val afterDigitsE = consumeDigits(state)
 
-    val (endState, isReal) = afterDigits.currentChar match
-      case Some('.') =>
-        val afterDot = afterDigits.advance
-        val afterFraction = consumeDigits(afterDot)
-        (afterFraction, true)
-      case _ => (afterDigits, false)
+    afterDigitsE match
+      case Right(afterDigits) =>
+        val (endState, isReal) = afterDigits.currentChar match
+          case Some('.') =>
+            val afterDot = afterDigits.advance
+            val afterFraction = consumeDigits(afterDot)
+            (afterFraction, true)
+          case _ => (Right(afterDigits), false)
 
-    val lexeme = endState.substring(startPos)
-    val tokenType = if isReal then TokenType.RealLiteral else TokenType.IntegerLiteral
+        val lexeme = endState.map(_.substring(startPos))
+        val tokenType = if isReal then TokenType.RealLiteral else TokenType.IntegerLiteral
 
-    Right((endState, Token(tokenType, lexeme, startLocation)))
+        (lexeme, endState).mapN((l, es) => (es, Token(tokenType, l, startLocation)))
+      case Left(le) => Left(le)  
 
   private def lexSymbolOrOperator(state: LexerState, startLocation: Location): Either[LexerError, (LexerState, Token)] =
     state.currentChar match
