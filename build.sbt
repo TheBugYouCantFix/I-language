@@ -6,3 +6,5 @@ lazy val root = (project in file("."))
   .settings(
     name := "ILang"
   )
+
+libraryDependencies += "org.typelevel" %% "cats-core" % "2.9.0"
