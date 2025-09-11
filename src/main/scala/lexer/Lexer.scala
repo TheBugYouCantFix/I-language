@@ -90,16 +90,19 @@ object Lexer:
     val startPos = state.pos
     val endState = consumeLetters(state)
     val lexeme = endState.substring(startPos)
+    val identifierPattern = "[a-zA-Z_][a-zA-Z0-9_]{0,30}"
     val tokenType = keywords.getOrElse(lexeme, TokenType.Identifier)
 
-    Right((endState, Token(tokenType, lexeme, startLocation)))
+    if lexeme.matches(identifierPattern)
+    then Right((endState, Token(tokenType, lexeme, startLocation)))
+    else Left(LexerError("Unallowed identifier"))
 
   private def lexNumber(state: LexerState, startLocation: Location): Either[LexerError, (LexerState, Token)] =
     @tailrec
-    def consumeDigits(current: LexerState): Either[LexerError, LexerState] =
+    def consumeDigits(current: LexerState, dotEncounteredBefore: Boolean = false): Either[LexerError, LexerState] =
       current.currentChar match
-        case Some(c) if c.isDigit => consumeDigits(current.advance)
-        case Some(c) if c == '.' => Left(LexerError("Unallowed use of '.'"))
+        case Some(c) if c.isDigit => consumeDigits(current.advance, dotEncounteredBefore)
+        case Some(c) if c == '.' && dotEncounteredBefore => Left(LexerError("Unallowed use of '.'"))
         case _ => Right(current)
 
     val startPos = state.pos
@@ -110,7 +113,7 @@ object Lexer:
         val (endState, isReal) = afterDigits.currentChar match
           case Some('.') =>
             val afterDot = afterDigits.advance
-            val afterFraction = consumeDigits(afterDot)
+            val afterFraction = consumeDigits(afterDot, true)
             (afterFraction, true)
           case _ => (Right(afterDigits), false)
 
@@ -118,7 +121,7 @@ object Lexer:
         val tokenType = if isReal then TokenType.RealLiteral else TokenType.IntegerLiteral
 
         (lexeme, endState).mapN((l, es) => (es, Token(tokenType, l, startLocation)))
-      case Left(le) => Left(le)  
+      case Left(le) => Left(le)
 
   private def lexSymbolOrOperator(state: LexerState, startLocation: Location): Either[LexerError, (LexerState, Token)] =
     state.currentChar match
