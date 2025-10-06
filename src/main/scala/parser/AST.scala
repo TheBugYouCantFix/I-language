@@ -1,7 +1,3 @@
 package parser
 
-case class Program(
-    topDeclarations: Vector[SimpleDeclaration | RoutineDeclaration]
-)
-    
-
+type Program = Vector[SimpleDeclaration | RoutineDeclaration]
