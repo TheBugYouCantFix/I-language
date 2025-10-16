@@ -103,24 +103,11 @@ object SyntaxAnalyzer:
                 case _ => Left(())
         
         def parseType(state: ParserState): ParseResult[Type] =
-            def parseRecordField(state: ParserState): ParseResult[VariableDeclaration] =
-                state.advanceN(3) match
-                    case (
-                        List(
-                            Token(TokenType.Var, _, _),
-                            Token(TokenType.Identifier, idName, _),
-                            Token(TokenType.Colon, _, _)
-                        ),
-                        nextState
-                    ) =>
-                        parseType(nextState).map { _.map(t => VariableDeclaration(idName, Some(t), None)) }
-                    case _ => Left(())
-
             def parseRecordType(acc: List[VariableDeclaration], state: ParserState): Either[ParserError, (ParserState, List[VariableDeclaration])] = {
                 state.peek match
                     case Some(Token(TokenType.End, _, _)) =>
                         Right((state.discardN(), acc))
-                    case Some(_) => parseRecordField(state).flatMap {
+                    case Some(_) => parseVariableDeclaration(state.discardN()).flatMap {
                         case (nextState, varDecl) => parseRecordType(varDecl :: acc, nextState)
                     }
                     case None => Left(())
@@ -134,17 +121,17 @@ object SyntaxAnalyzer:
                     parseRecordType(Nil, nextState).map(_.map(RecordType(_)))
                 case (Token(TokenType.Array, _, _) :: Nil, nextState) =>    
                     nextState.advanceN() match
-                        case (Token(TokenType.LeftBracket, _, _) :: Nil, nextState) =>
-                            nextState.peek match
+                        case (Token(TokenType.LeftBracket, _, _) :: Nil, afterLBracket) =>
+                            afterLBracket.peek match
                                 case Some(Token(TokenType.RightBracket, _, _)) =>
-                                    parseType(nextState.discardN()).map {
+                                    parseType(afterLBracket.discardN()).map {
                                         _.map(type_ => ArrayType(None, type_))
                                     }
                                 case Some(_) => 
                                     for 
-                                        (nextState, size) <- parseExpression(nextState.advanceN()._2)
-                                        isNextBracket     <- peekAndCheck(nextState)(_.tkType == TokenType.RightBracket)
-                                        (s, type_)        <- if isNextBracket then parseType(nextState.discardN()) else Left(())
+                                        (afterSize, size) <- parseExpression(afterLBracket)
+                                        isNextBracket     <- peekAndCheck(afterSize)(_.tkType == TokenType.RightBracket)
+                                        (s, type_)        <- if isNextBracket then parseType(afterSize.discardN()) else Left(())
                                     yield (s, ArrayType(Some(size), type_))
                                 case None => Left(())
                         case _ => Left(())
@@ -170,7 +157,7 @@ object SyntaxAnalyzer:
         def parseRoutineCall(state: ParserState): ParseResult[RoutineCall] = 
             def parseArguments(state: ParserState, acc: List[Expression]): Either[ParserError, (ParserState, List[Expression])] =
                 state.peek match
-                    case Some(Token(TokenType.RightBrace, _, _)) => Right((state.discardN(), acc))
+                    case Some(Token(TokenType.RightParen, _, _)) => Right((state.discardN(), acc))
                     case Some(Token(TokenType.Comma, _, _)) =>
                         if acc == Nil then Left(()) else parseExpression(state.discardN()).flatMap {
                             case (s, e) => parseArguments(s, e :: acc)
@@ -180,11 +167,10 @@ object SyntaxAnalyzer:
 
             state.advanceN() match
                 case (Token(TokenType.Identifier, idName, _) :: Nil, nextState) =>
-                    // TODO: unchecked token peek!!!
-                    peekAndCheck(nextState)(_.tkType == TokenType.LeftBrace).flatMap {
+                    peekAndCheck(nextState)(_.tkType == TokenType.LeftParen).flatMap {
                         case true =>
                             val afterL = nextState.discardN()
-                            peekAndCheck(afterL)(_.tkType == TokenType.RightBrace).flatMap {
+                            peekAndCheck(afterL)(_.tkType == TokenType.RightParen).flatMap {
                                 case true => Right((afterL.discardN(), RoutineCall(idName, Nil)))
                                 case false =>
                                     for
@@ -192,7 +178,7 @@ object SyntaxAnalyzer:
                                         (s, args)     <- parseArguments(s, firstArg :: Nil)
                                     yield (s, RoutineCall(idName, args))
                             }
-                        case false => Right((nextState, RoutineCall(idName, Nil)))
+                        case false => Left(())
                     }
                 case _ => Left(())
             
@@ -248,9 +234,19 @@ object SyntaxAnalyzer:
         def parseRange(state: ParserState): ParseResult[Range] =
             for 
                 (s, firstVar) <- parseExpression(state)
-                (s, secVar)   <- peekAndCheck(s)(_.tkType == TokenType.RangeOp).flatMap {
-                    case true  => parseExpression(s.discardN()).map(_.map(Some(_)))
-                    case false => Right((s, None))
+                (s, secVar)   <- {
+                    peekAndCheck(s)(_.tkType == TokenType.RangeOp).flatMap {
+                        case true  => parseExpression(s.discardN()).map(_.map(Some(_)))
+                        case false =>
+                            s.peek match
+                                case Some(Token(TokenType.Dot, _, _)) =>
+                                    val afterFirstDot = s.discardN()
+                                    afterFirstDot.peek match
+                                        case Some(Token(TokenType.Dot, _, _)) =>
+                                            parseExpression(afterFirstDot.discardN()).map(_.map(Some(_)))
+                                        case _ => Right((s, None))
+                                case _ => Right((s, None))
+                    }
                 }
             yield (s, Range(firstVar, secVar))
 
@@ -445,10 +441,11 @@ object SyntaxAnalyzer:
                         }
                     }
                 case Some(Token(TokenType.Identifier, _, _)) =>
-                    // Could be routine call or modifiable primary
-                    parseRoutineCall(state) match
-                        case Right((s, rc)) => Right((s, RoutineCallExpression(rc.identifier, rc.arguments)))
-                        case Left(_) =>
+                    // Prefer modifiable primary unless followed by '('
+                    peekAndCheck(state.advanceN()._2)(_.tkType == TokenType.LeftParen) match
+                        case Right(true) =>
+                            parseRoutineCall(state).map { case (s, rc) => (s, RoutineCallExpression(rc.identifier, rc.arguments)) }
+                        case _ =>
                             parseModifiablePrimary(state).map { case (s, mp) => (s, ModifiablePrimaryExpression(mp)) }
                 case _ => Left(())
 
