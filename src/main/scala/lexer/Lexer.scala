@@ -144,9 +144,9 @@ object Lexer:
 
       case Some('.') =>
         val afterFirstDot = state.advance
-        (afterFirstDot.currentChar, afterFirstDot.peekAhead(1)) match
-          case (Some('.'), Some('.')) =>
-            Right((afterFirstDot.advanceN(2), Token(TokenType.RangeOp, "...", startLocation)))
+        afterFirstDot.currentChar match
+          case Some('.') =>
+            Right((afterFirstDot.advanceN(2), Token(TokenType.RangeOp, "..", startLocation)))
           case _ => Right((state.advance, Token(TokenType.Dot, ".", startLocation)))
 
       case Some('/') =>
