@@ -1,4 +1,5 @@
 import lexer.*
+import parser.*
 
 object Main:
   def main(args: Array[String]): Unit =
@@ -13,7 +14,7 @@ object Main:
 //        """.stripMargin
 //    )
 //
-    lexerShowcase(
+    parserShowcase(
       """
         |type Person is record
         | var name : integer
@@ -28,7 +29,7 @@ object Main:
         |""".stripMargin
     )
 
-//    lexerShowcase(
+//    parserShowcase(
 //      """
 //        |var a : integer is 10
 //        |var b is 20
@@ -39,7 +40,7 @@ object Main:
 //        """.stripMargin
 //    )
 //
-//    lexerShowcase(
+//    parserShowcase(
 //      """
 //        |type IntArray is array [5] integer
 //        |
@@ -56,15 +57,9 @@ object Main:
 //        |""".stripMargin
 //    )
 //
-  private def lexerShowcase(source: String): Unit =
+  private def parserShowcase(source: String): Unit =
     Lexer.tokenize(source) match
       case Left(er) => println(er)
-      case Right(res) =>
-        res.foreach {
-          case Token(tkType, value, Location(ln, ind)) =>
-            println("Token:")
-            println(s" - type: $tkType")
-            println(s" - value: $value")
-            println(s" - position: line $ln, index $ind")
-        }
-    println()
+      case Right(tokens) =>
+        val program = SyntaxAnalyzer.analyze(tokens)
+        println(program)

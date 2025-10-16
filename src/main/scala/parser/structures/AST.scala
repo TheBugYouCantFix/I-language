@@ -9,4 +9,4 @@ trait ModifiablePrimary extends ASTNode
 trait Literal extends ASTNode
 trait BinaryOperator extends ASTNode
 trait ComparisonOperator extends ASTNode
-trait LogicalOperator extends ASTNode
+trait LogicalOperator extends BinaryOperator
