@@ -38,7 +38,7 @@ object SyntaxAnalyzer:
                 case Nil => Right(state)
 
         def parseSimpleDeclaration(state: ParserState): ParseResult[SimpleDeclaration] = 
-            parseVariableDeclaration(state).leftFlatMap(_ => parseTypeDeclaration(state))
+            parseVariableDeclaration(state) orElse parseTypeDeclaration(state)
         
         def parseVariableDeclaration(state: ParserState): ParseResult[VariableDeclaration] =
             state.advanceN(2) match
@@ -114,6 +114,14 @@ object SyntaxAnalyzer:
                 case (Token(TokenType.Identifier, idName, _) :: Nil, nextState) =>
                     Right((nextState, TypeAlias(idName)))
                 case _ => Left(())
+
+        def parseStatement(state: ParserState): ParseResult[Statement] =         
+            parseAssignment(state)  orElse
+            parseRoutineCall(state) orElse
+            parseWhileLoop(state)   orElse
+            parseForLoop(state)     orElse
+            parseIfStatement(state) orElse
+            parsePrintStatement(state)
 
         def parseAssignment(state: ParserState): ParseResult[Assignment] =
             for 
@@ -251,15 +259,52 @@ object SyntaxAnalyzer:
 
         def parseParameters(state: ParserState): ParseResult[List[ParameterDeclaration]] = 
             def loop(state: ParserState, acc: List[ParameterDeclaration]): ParseResult[List[ParameterDeclaration]] =
-                peekAndCheck(state)(_.tkType == TokenType.Comma).flatMap {
-                    case true => parsePara
-                        
-                }
+                peekAndCheck(state)(_.tkType == TokenType.Comma) match
+                    case Left(_) => Left(()) 
+                    case Right(true) => parseParameterDeclaration(state.discardN()).flatMap {
+                        case (s, paramDecl) => loop(s, paramDecl :: acc)
+                    }
+                    case Right(false) => Right((state, acc))
+            
+            parseParameterDeclaration(state).flatMap {
+                case (s, paramDecl) => loop(s, paramDecl :: Nil)
+            }
 
-        def parseParameterDeclaration(state: ParserState): ParseResult[ParameterDeclaration] = ???
+        def parseParameterDeclaration(state: ParserState): ParseResult[ParameterDeclaration] =
+            state.advanceN(2) match
+                case (
+                    List(
+                        Token(TokenType.Identifier, idName, _),
+                        Token(TokenType.Colon, _, _)
+                    ),
+                    nextState
+                ) =>
+                    parseType(nextState).map {
+                        _.map(type_ => ParameterDeclaration(idName, type_))
+                    }
+                case _ => Left(())
 
-        def parseBody(state: ParserState): ParseResult[Body] = ???                  
-        
+        def parseBody(state: ParserState): ParseResult[Body] = 
+            def loop(state: ParserState, simpleDecls: List[SimpleDeclaration], statements: List[Statement]): ParseResult[Body] =
+                parseSimpleDeclaration(state) orElse parseStatement(state) match
+                    case Left(_) =>
+                        if simpleDecls == Nil && statements == Nil then Left(())
+                        else Right((state, Body(simpleDecls, statements)))
+                    case Right((nextState, s: Statement)) => loop(nextState, simpleDecls, s :: statements)
+                    case Right((nextState, s: SimpleDeclaration)) => loop(nextState, s :: simpleDecls, statements)
+            
+            loop(state, Nil, Nil)
+                    
         def parseExpression(state: ParserState): ParseResult[Expression] = ???
 
-        
+        def parseRelation(state: ParserState): ParseResult[Relation] = ???
+
+        def parseSimple(state: ParserState): ParseResult[Simple] = ???
+
+        def parseFactor(state: ParserState): ParseResult[Factor] = ???
+
+        def parseSummand(state: ParserState): ParseResult[Summand] = ???
+
+        def parsePrimary(state: ParserState): ParseResult[Primary] = ???
+
+        def parseSign(state: ParserState): ParseResult[Sign] = ???
