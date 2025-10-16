@@ -17,7 +17,29 @@ extension [A](p: (ParserState, A))
         case (s, a) => (s, f(a))
 
 object SyntaxAnalyzer:
-    def analyze(tokens: List[Token]): Program = ???
+    def analyze(tokens: List[Token]): Program =
+        import Parser.*
+        @annotation.tailrec
+        def loop(state: ParserState, declsAcc: List[Declaration], stmtsAcc: List[Statement]): (ParserState, List[Declaration]) =
+            // Try routine declaration first
+            parseRoutineDeclaration(state) match
+                case Right((s1, rd)) =>
+                    val withStmts = if stmtsAcc.nonEmpty then StatementDeclaration(stmtsAcc.reverse) :: declsAcc else declsAcc
+                    loop(s1, rd :: withStmts, Nil)
+                case Left(_) =>
+                    // Try simple declaration (var/type)
+                    parseSimpleDeclaration(state) match
+                        case Right((s2, sd)) =>
+                            val withStmts = if stmtsAcc.nonEmpty then StatementDeclaration(stmtsAcc.reverse) :: declsAcc else declsAcc
+                            loop(s2, sd :: withStmts, Nil)
+                        case Left(_) =>
+                            // Try statement
+                            parseStatement(state) match
+                                case Right((s3, st)) => loop(s3, declsAcc, st :: stmtsAcc)
+                                case Left(_) => (state, (if stmtsAcc.nonEmpty then StatementDeclaration(stmtsAcc.reverse) :: declsAcc else declsAcc))
+
+        val (_, decls) = loop(ParserState(tokens), Nil, Nil)
+        Program(decls.reverse)
 
     object Parser:
         private def peekAndCheck(state: ParserState)(p: Token => Boolean) = 
@@ -146,10 +168,15 @@ object SyntaxAnalyzer:
                     // TODO: unchecked token peek!!!
                     peekAndCheck(nextState)(_.tkType == TokenType.LeftBrace).flatMap {
                         case true =>
-                            for
-                                (s, firstArg) <- parseExpression(nextState.discardN())
-                                (s, args)     <- parseArguments(s, firstArg :: Nil)
-                            yield (s, RoutineCall(idName, args))
+                            val afterL = nextState.discardN()
+                            peekAndCheck(afterL)(_.tkType == TokenType.RightBrace).flatMap {
+                                case true => Right((afterL.discardN(), RoutineCall(idName, Nil)))
+                                case false =>
+                                    for
+                                        (s, firstArg) <- parseExpression(afterL)
+                                        (s, args)     <- parseArguments(s, firstArg :: Nil)
+                                    yield (s, RoutineCall(idName, args))
+                            }
                         case false => Right((nextState, RoutineCall(idName, Nil)))
                     }
                 case _ => Left(())
@@ -180,7 +207,28 @@ object SyntaxAnalyzer:
                 s <- discardSpecific(s)(_.tkType == TokenType.End)
             yield (s, ForLoop(idName, range, isReverse, body))
         
-        def parseModifiablePrimary(state: ParserState): ParseResult[ModifiablePrimary] = ???
+        def parseModifiablePrimary(state: ParserState): ParseResult[ModifiablePrimary] =
+            state.advanceN() match
+                case (Token(TokenType.Identifier, idName, _) :: Nil, nextState) =>
+                    @annotation.tailrec
+                    def loop(s: ParserState, members: List[MemberAccess], arrays: List[ArrayAccess]): (ParserState, List[MemberAccess], List[ArrayAccess]) =
+                        s.peek match
+                            case Some(Token(TokenType.Dot, _, _)) =>
+                                s.discardN().advanceN() match
+                                    case (Token(TokenType.Identifier, mem, _) :: Nil, ns) =>
+                                        loop(ns, MemberAccess(mem) :: members, arrays)
+                                    case _ => (s, members, arrays)
+                            case Some(Token(TokenType.LeftBracket, _, _)) =>
+                                parseExpression(s.discardN()) match
+                                    case Right((ns, idx)) =>
+                                        ns.peek match
+                                            case Some(Token(TokenType.RightBracket, _, _)) => loop(ns.discardN(), members, ArrayAccess(idx) :: arrays)
+                                            case _ => (s, members, arrays)
+                                    case Left(_) => (s, members, arrays)
+                            case _ => (s, members, arrays)
+                    val (endState, mems, arrs) = loop(nextState, Nil, Nil)
+                    Right((endState, ModifiablePrimaryNode(idName, mems.reverse, arrs.reverse)))
+                case _ => Left(())
         
         def parseRange(state: ParserState): ParseResult[Range] =
             for 
@@ -295,16 +343,102 @@ object SyntaxAnalyzer:
             
             loop(state, Nil, Nil)
                     
-        def parseExpression(state: ParserState): ParseResult[Expression] = ???
+        def parseExpression(state: ParserState): ParseResult[Expression] =
+            parseRelation(state)
 
-        def parseRelation(state: ParserState): ParseResult[Relation] = ???
+        def parseRelation(state: ParserState): ParseResult[Relation] =
+            def comparisonOf(t: TokenType): Option[ComparisonOperator] = t match
+                case TokenType.Lt   => Some(LessThan)
+                case TokenType.Lteq => Some(LessThanOrEqual)
+                case TokenType.Gt   => Some(GreaterThan)
+                case TokenType.Gteq => Some(GreaterThanOrEqual)
+                case TokenType.Eq   => Some(Equal)
+                case TokenType.Neq  => Some(NotEqual)
+                case _ => None
 
-        def parseSimple(state: ParserState): ParseResult[Simple] = ???
+            def loop(s: ParserState, left: Simple, acc: List[(ComparisonOperator, Simple)]): ParseResult[Relation] =
+                s.peek match
+                    case Some(Token(tk, _, _)) =>
+                        comparisonOf(tk) match
+                            case Some(op) =>
+                                parseSimple(s.discardN()).flatMap { case (ns, right) => loop(ns, left, (op -> right) :: acc) }
+                            case None => Right((s, Relation(left, acc.reverse)))
+                    case None => Right((s, Relation(left, acc.reverse)))
 
-        def parseFactor(state: ParserState): ParseResult[Factor] = ???
+            parseSimple(state).flatMap { case (s, left) => loop(s, left, Nil) }
 
-        def parseSummand(state: ParserState): ParseResult[Summand] = ???
+        def parseSimple(state: ParserState): ParseResult[Simple] =
+            def binOpOf(t: TokenType): Option[BinaryOperator] = t match
+                case TokenType.Plus => Some(Plus)
+                case TokenType.Minus => Some(Minus)
+                case TokenType.Or => Some(Or)
+                case TokenType.Xor => Some(Xor)
+                case _ => None
 
-        def parsePrimary(state: ParserState): ParseResult[Primary] = ???
+            def loop(s: ParserState, left: Factor, acc: List[(BinaryOperator, Factor)]): ParseResult[Simple] =
+                s.peek match
+                    case Some(Token(tk, _, _)) =>
+                        binOpOf(tk) match
+                            case Some(op) =>
+                                parseFactor(s.discardN()).flatMap { case (ns, right) => loop(ns, left, (op -> right) :: acc) }
+                            case None => Right((s, Simple(left, acc.reverse)))
+                    case None => Right((s, Simple(left, acc.reverse)))
 
-        def parseSign(state: ParserState): ParseResult[Sign] = ???
+            parseFactor(state).flatMap { case (s, left) => loop(s, left, Nil) }
+
+        def parseFactor(state: ParserState): ParseResult[Factor] =
+            def binOpOf(t: TokenType): Option[BinaryOperator] = t match
+                case TokenType.Mul => Some(Multiply)
+                case TokenType.Div => Some(Divide)
+                case TokenType.Mod => Some(Modulo)
+                case TokenType.And => Some(And)
+                case _ => None
+
+            def loop(s: ParserState, left: Summand, acc: List[(BinaryOperator, Summand)]): ParseResult[Factor] =
+                s.peek match
+                    case Some(Token(tk, _, _)) =>
+                        binOpOf(tk) match
+                            case Some(op) =>
+                                parseSummand(s.discardN()).flatMap { case (ns, right) => loop(ns, left, (op -> right) :: acc) }
+                            case None => Right((s, Factor(left, acc.reverse)))
+                    case None => Right((s, Factor(left, acc.reverse)))
+
+            parseSummand(state).flatMap { case (s, left) => loop(s, left, Nil) }
+
+        def parseSummand(state: ParserState): ParseResult[Summand] =
+            val (signOpt, afterSign) = parseSign(state) match
+                case Right((s, sg)) => (Some(sg), s)
+                case Left(_) => (None, state)
+
+            val (isNot, afterNot) = peekAndCheck(afterSign)(_.tkType == TokenType.Not) match
+                case Right(true) => (true, afterSign.discardN())
+                case _           => (false, afterSign)
+
+            parsePrimary(afterNot).map { case (s, p) => (s, Summand(p, signOpt, isNot)) }
+
+        def parsePrimary(state: ParserState): ParseResult[Primary] =
+            state.peek match
+                case Some(Token(TokenType.IntegerLiteral, v, _)) => Right((state.discardN(), IntegerLiteral(v.toInt)))
+                case Some(Token(TokenType.RealLiteral, v, _))    => Right((state.discardN(), RealLiteral(v.toDouble)))
+                case Some(Token(TokenType.True, _, _))           => Right((state.discardN(), BooleanLiteral(true)))
+                case Some(Token(TokenType.False, _, _))          => Right((state.discardN(), BooleanLiteral(false)))
+                case Some(Token(TokenType.LeftParen, _, _)) =>
+                    parseExpression(state.discardN()).flatMap { case (s, e) =>
+                        peekAndCheck(s)(_.tkType == TokenType.RightParen).map {
+                            case true  => (s.discardN(), ParenthesizedExpression(e))
+                            case false => (s, ParenthesizedExpression(e)) // ill-formed, but keep state
+                        }
+                    }
+                case Some(Token(TokenType.Identifier, _, _)) =>
+                    // Could be routine call or modifiable primary
+                    parseRoutineCall(state) match
+                        case Right((s, rc)) => Right((s, RoutineCallExpression(rc.identifier, rc.arguments)))
+                        case Left(_) =>
+                            parseModifiablePrimary(state).map { case (s, mp) => (s, ModifiablePrimaryExpression(mp)) }
+                case _ => Left(())
+
+        def parseSign(state: ParserState): ParseResult[Sign] =
+            state.peek match
+                case Some(Token(TokenType.Plus, _, _))  => Right((state.discardN(), Positive))
+                case Some(Token(TokenType.Minus, _, _)) => Right((state.discardN(), Negative))
+                case _ => Left(())
