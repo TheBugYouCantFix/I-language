@@ -50,11 +50,11 @@ case class ParameterDeclaration(
 /**
  * Routine body containing local declarations and statements
  */
-case class RoutineBody(
-  declarations: List[SimpleDeclaration],
-  statements: List[Statement],
-  returnExpression: Option[Expression]
-)
+sealed trait RoutineBody
+
+case class JustRoutineBody(body: Body) extends RoutineBody
+
+case class RoutineBodyExpression(expression: Expression) extends RoutineBody
 
 /**
  * Statement declaration (for top-level statements)

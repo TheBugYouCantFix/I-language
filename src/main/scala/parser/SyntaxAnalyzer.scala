@@ -5,6 +5,9 @@ import parser.structures.*
 import parser.parsers.ParserState
 import cats.syntax.either.*
 import lexer.TokenType
+import cats.syntax.arrow
+import scala.quoted.Expr
+import scala.util.CommandLineParser.ParseError
 
 type ParserError = Unit // TODO: implement parser error
 type ParseResult[R] = Either[ParserError, (ParserState, R)]
@@ -120,25 +123,142 @@ object SyntaxAnalyzer:
             yield (s, Assignment(m, e))
         
         def parseRoutineCall(state: ParserState): ParseResult[RoutineCall] = 
-            def parseArguments(state: ParserState, acc: List[Expression]): Either[ParserError, List[Expression]] =
-                peekAndCheck(state)(_.tkType == TokenType.RightBrace).flatMap {
-                    b => if b then Right(acc) else parseArguments(state.discardN(), )
-                }
-                    
-                
-                
-                
+            def parseArguments(state: ParserState, acc: List[Expression]): Either[ParserError, (ParserState, List[Expression])] =
+                state.peek match
+                    case Some(Token(TokenType.RightBrace, _, _)) => Right((state.discardN(), acc))
+                    case Some(Token(TokenType.Comma, _, _)) =>
+                        if acc == Nil then Left(()) else parseExpression(state.discardN()).flatMap {
+                            case (s, e) => parseArguments(s, e :: acc)
+                        }
+                    case Some(_) => Left(())
+                    case None => Left(())
 
             state.advanceN() match
                 case (Token(TokenType.Identifier, idName, _) :: Nil, nextState) =>
+                    // TODO: unchecked token peek!!!
                     peekAndCheck(nextState)(_.tkType == TokenType.LeftBrace).flatMap {
-                        b => if b then 
+                        case true =>
+                            for
+                                (s, firstArg) <- parseExpression(nextState.discardN())
+                                (s, args)     <- parseArguments(s, firstArg :: Nil)
+                            yield (s, RoutineCall(idName, args))
+                        case false => Right((nextState, RoutineCall(idName, Nil)))
                     }
-                    
+                case _ => Left(())
+            
+        def parseWhileLoop(state: ParserState): ParseResult[WhileLoop] = 
+            for 
+                s      <- discardSpecific(state)(_.tkType == TokenType.While)
+                (s, e) <- parseExpression(s)
+                s      <- discardSpecific(s)(_.tkType == TokenType.Loop)
+                (s, b) <- parseBody(s)
+                s      <- discardSpecific(s)(_.tkType == TokenType.End)
+            yield (s, WhileLoop(e, b))
+        
+        def parseForLoop(state: ParserState): ParseResult[ForLoop] = 
+            for
+                s <- discardSpecific(state)(_.tkType == TokenType.For)
+                (s, idName) <- s.advanceN() match
+                    case (Token(TokenType.Identifier, idName, _) :: Nil, s) => Right((s, idName))
+                    case _ => Left(())
+                s <- discardSpecific(s)(_.tkType == TokenType.In)
+                (s, range) <- parseRange(s)
+                (s, isReverse) <- peekAndCheck(s)(_.tkType == TokenType.Reverse).map {
+                    case true  => (s.discardN(), true)
+                    case false => (s, false)
+                }
+                s <- discardSpecific(s)(_.tkType == TokenType.Loop)
+                (s, body) <- parseBody(s)
+                s <- discardSpecific(s)(_.tkType == TokenType.End)
+            yield (s, ForLoop(idName, range, isReverse, body))
+        
+        def parseModifiablePrimary(state: ParserState): ParseResult[ModifiablePrimary] = ???
+        
+        def parseRange(state: ParserState): ParseResult[Range] =
+            for 
+                (s, firstVar) <- parseExpression(state)
+                (s, secVar)   <- peekAndCheck(s)(_.tkType == TokenType.RangeOp).flatMap {
+                    case true  => parseExpression(s.discardN()).map(_.map(Some(_)))
+                    case false => Right((s, None))
+                }
+            yield (s, Range(firstVar, secVar))
 
-            
-            
-        def parseModifiablePrimary(state: ParserState): ParseResult[ModifiablePrimary] = ???                    
+        def parseIfStatement(state: ParserState): ParseResult[IfStatement] = 
+            for 
+                s <- discardSpecific(state)(_.tkType == TokenType.If)
+                (s, e) <- parseExpression(s)
+                s <- discardSpecific(s)(_.tkType == TokenType.Then)
+                (s, body) <- parseBody(s)
+                (s, elseBody) <- peekAndCheck(s)(_.tkType == TokenType.Else).flatMap {
+                    case true  => parseBody(s.discardN()).map(_.map(Some(_)))
+                    case false => Right((s, None))
+                }
+                s <- discardSpecific(s)(_.tkType == TokenType.End)
+            yield (s, IfStatement(e, body, elseBody))
+        
+        def parsePrintStatement(state: ParserState): ParseResult[PrintStatement] =
+            def parseArguments(state: ParserState, acc: List[Expression]): ParseResult[List[Expression]] =
+                peekAndCheck(state)(_.tkType == TokenType.Comma) match
+                    case Left(_) => Left(()) 
+                    case Right(true) => parseExpression(state.discardN()).flatMap {
+                        case (s, e) => parseArguments(s, e :: acc)
+                    }
+                    case Right(false) => Right((state, acc))
+
+            for 
+                s <- discardSpecific(state)(_.tkType == TokenType.Print)
+                (s, firstArg) <- parseExpression(s)
+                (s, args) <- parseArguments(s, firstArg :: Nil)
+            yield (s, PrintStatement(args))
+        
+        def parseRoutineDeclaration(state: ParserState): ParseResult[RoutineDeclaration] =
+            for
+                (s, rHead) <- parseRoutineHeader(state)
+                b <- peekAndCheck(s)(_.tkType == TokenType.Is)
+                (s, rBody) <- if b then parseRoutineBody(s).map(_.map(Some(_))) else Right((s, None))
+            yield (s, RoutineDeclaration(rHead, rBody))
+
+        def parseRoutineHeader(state: ParserState): ParseResult[RoutineHeader] =
+            state.advanceN(3) match
+                case (
+                    List(
+                        Token(TokenType.Routine, _, _),
+                        Token(TokenType.Identifier, idName, _),
+                        Token(TokenType.LeftBrace, _, _)
+                    ),
+                    nextState
+                ) =>
+                    for
+                        (s, params) <- parseParameters(nextState)
+                        s <- discardSpecific(s)(_.tkType == TokenType.RightBrace)
+                        b <- peekAndCheck(s)(_.tkType == TokenType.Colon)
+                        (s, type_) <- if b then parseType(s.discardN()).map(_.map(Some(_))) else Right((s, None))
+                    yield (s, RoutineHeader(idName, params, type_))
+                case _ => Left(())
+
+        def parseRoutineBody(state: ParserState): ParseResult[RoutineBody] =
+            state.advanceN() match
+                case (Token(TokenType.Is, _, _) :: Nil, nextState) =>
+                    for 
+                        (s, body) <- parseBody(nextState)
+                        s <- discardSpecific(s)(_.tkType == TokenType.End)
+                    yield (s, JustRoutineBody(body))
+                case (Token(TokenType.Gteq, _, _) :: Nil, nextState) =>
+                    parseExpression(nextState).map {
+                        _.map(e => RoutineBodyExpression(e))
+                    }
+                case _ => Left(())
+
+        def parseParameters(state: ParserState): ParseResult[List[ParameterDeclaration]] = 
+            def loop(state: ParserState, acc: List[ParameterDeclaration]): ParseResult[List[ParameterDeclaration]] =
+                peekAndCheck(state)(_.tkType == TokenType.Comma).flatMap {
+                    case true => parsePara
+                        
+                }
+
+        def parseParameterDeclaration(state: ParserState): ParseResult[ParameterDeclaration] = ???
+
+        def parseBody(state: ParserState): ParseResult[Body] = ???                  
         
         def parseExpression(state: ParserState): ParseResult[Expression] = ???
 

@@ -34,7 +34,7 @@ case class PrintStatement(
 
 case class Range(
   start: Expression,
-  end: Expression
+  end: Option[Expression]
 )
 
 case class Body(
