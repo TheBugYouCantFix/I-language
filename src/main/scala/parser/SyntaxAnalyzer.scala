@@ -79,9 +79,11 @@ object SyntaxAnalyzer:
                         case (Token(TokenType.Colon, _, _) :: Nil, nextState) =>
                             for
                                 (s, varType) <- parseType(nextState)
-                                s            <- discardSpecific(s)(_.tkType == TokenType.Is)
-                                (s, e)       <- parseExpression(s)
-                            yield (s, VariableDeclaration(idName, Some(varType), Some(e)))
+                                (s, initOpt) <- peekAndCheck(s)(_.tkType == TokenType.Is).flatMap {
+                                    case true  => parseExpression(s.discardN()).map(_.map(Some(_)))
+                                    case false => Right((s, None))
+                                }
+                            yield (s, VariableDeclaration(idName, Some(varType), initOpt))
                         case _ => Left(())
                 case _ => Left(())
 
@@ -101,11 +103,24 @@ object SyntaxAnalyzer:
                 case _ => Left(())
         
         def parseType(state: ParserState): ParseResult[Type] =
+            def parseRecordField(state: ParserState): ParseResult[VariableDeclaration] =
+                state.advanceN(3) match
+                    case (
+                        List(
+                            Token(TokenType.Var, _, _),
+                            Token(TokenType.Identifier, idName, _),
+                            Token(TokenType.Colon, _, _)
+                        ),
+                        nextState
+                    ) =>
+                        parseType(nextState).map { _.map(t => VariableDeclaration(idName, Some(t), None)) }
+                    case _ => Left(())
+
             def parseRecordType(acc: List[VariableDeclaration], state: ParserState): Either[ParserError, (ParserState, List[VariableDeclaration])] = {
                 state.peek match
                     case Some(Token(TokenType.End, _, _)) =>
                         Right((state.discardN(), acc))
-                    case Some(_) => parseVariableDeclaration(state.discardN()).flatMap {
+                    case Some(_) => parseRecordField(state).flatMap {
                         case (nextState, varDecl) => parseRecordType(varDecl :: acc, nextState)
                     }
                     case None => Left(())

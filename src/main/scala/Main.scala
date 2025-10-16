@@ -22,7 +22,7 @@ object Main:
         |end
         |
         |var p1 : Person
-        |p1.name := 52a
+        |p1.name := 12
         |p1.age := 30
         |
         |print p1.name, p1.age
@@ -62,4 +62,4 @@ object Main:
       case Left(er) => println(er)
       case Right(tokens) =>
         val program = SyntaxAnalyzer.analyze(tokens)
-        println(program)
+        println(parser.ASTPrinter.format(program))
