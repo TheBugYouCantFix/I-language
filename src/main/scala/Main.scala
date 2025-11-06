@@ -52,56 +52,56 @@ object Main:
 //        |var b is unknownVar + 5
 //        |""".stripMargin
 //    )
+////
+//    println("\n" + "=" * 60)
+//    println("Example 4: Array Type and Bounds")
+//    println("=".repeat(60))
+//    semanticShowcase(
+//      """
+//        |type IntArray is array [3] integer
+//        |var numbers : IntArray
+//        |numbers[0] := 10
+//        |numbers[4] := 20
+//        |""".stripMargin
+//    )
+
+//    println("\n" + "=" * 60)
+//    println("Example 5: Routine Declaration and Call")
+//    println("=".repeat(60))
+//    semanticShowcase(
+//      """
+//        |routine add(x : integer, y : integer) : integer is
+//        |    x + y
+//        |end
+//        |
+//        |var result is add(5, 3)
+//        |""".stripMargin
+//    )
 //
-    println("\n" + "=" * 60)
-    println("Example 4: Array Type and Bounds")
-    println("=".repeat(60))
-    semanticShowcase(
-      """
-        |type IntArray is array [4] integer
-        |var numbers : IntArray
-        |numbers[0] := 10
-        |numbers[4] := 20
-        |""".stripMargin
-    )
-
-    println("\n" + "=" * 60)
-    println("Example 5: Routine Declaration and Call")
-    println("=".repeat(60))
-    semanticShowcase(
-      """
-        |routine add(x : integer, y : integer) : integer is
-        |    x + y
-        |end
-        |
-        |var result is add(5, 3)
-        |""".stripMargin
-    )
-
-    println("\n" + "=" * 60)
-    println("Example 6: Routine Call Errors")
-    println("=".repeat(60))
-    semanticShowcase(
-      """
-        |routine add(x : integer, y : integer) : integer is
-        |    x + y
-        |end
-        |
-        |var result1 is add(5)
-        |var result2 is add(5, 3, 2)
-        |var result3 is add(5, true)
-        |""".stripMargin
-    )
-
-    println("\n" + "=" * 60)
-    println("Example 7: Undeclared Routine")
-    println("=".repeat(60))
-    semanticShowcase(
-      """
-        |var result is unknownFunction(5)
-        |""".stripMargin
-    )
-
+//    println("\n" + "=" * 60)
+//    println("Example 6: Routine Call Errors")
+//    println("=".repeat(60))
+//    semanticShowcase(
+//      """
+//        |routine add(x : integer, y : integer) : integer is
+//        |    x + y
+//        |end
+//        |
+//        |var result1 is add(5)
+//        |var result2 is add(5, 3, 2)
+//        |var result3 is add(5, true)
+//        |""".stripMargin
+//    )
+//
+//    println("\n" + "=" * 60)
+//    println("Example 7: Undeclared Routine")
+//    println("=".repeat(60))
+//    semanticShowcase(
+//      """
+//        |var result is unknownFunction(5)
+//        |""".stripMargin
+//    )
+//
     println("\n" + "=" * 60)
     println("Example 8: Control Flow - If/While with Boolean Conditions")
     println("=".repeat(60))

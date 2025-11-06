@@ -214,19 +214,43 @@ object SemanticAnalyzer {
 
     val (st1, _) = inferType(expr, state, context)
     val st2 = validateExpr(expr, st1)
-    if markUsage then markUsageInExpr(expr, st2) else st2
+    if markUsage then markUsageInExpr(expr, st2, context) else st2
   }
 
-  private def markUsageInExpr(expr: Expression, state: SemState): SemState = expr match
+  private def markUsageInExpr(expr: Expression, state: SemState, context: SemanticContext): SemState = expr match
     case ModifiablePrimaryExpression(mp) =>
       mp match
         case ModifiablePrimaryNode(id, _, _) => state.withTable(state.table.markVariableUsed(id))
-    case RoutineCallExpression(_, args)  => args.foldLeft(state) { (st, e) => markUsageInExpr(e, st) }
-    case ParenthesizedExpression(e)      => markUsageInExpr(e, state)
-    case Relation(l, comps)              => comps.foldLeft(markUsageInExpr(l, state)) { case (st, (_, s)) => markUsageInExpr(s, st) }
-    case Simple(l, ops)                  => ops.foldLeft(markUsageInExpr(l, state)) { case (st, (_, f)) => markUsageInExpr(f, st) }
-    case Factor(l, ops)                  => ops.foldLeft(markUsageInExpr(l, state)) { case (st, (_, sm)) => markUsageInExpr(sm, st) }
-    case Summand(p, _, _)                => markUsageInExpr(p, state)
+    case RoutineCallExpression(_, args)  => args.foldLeft(state) { (st, e) => markUsageInExpr(e, st, context) }
+    case ParenthesizedExpression(e)      => markUsageInExpr(e, state, context)
+    case Relation(l, comps)              => comps.foldLeft(markUsageInExpr(l, state, context)) { case (st, (_, s)) => markUsageInExpr(s, st, context) }
+    case Simple(l, ops)                  => ops.foldLeft(markUsageInExpr(l, state, context)) { case (st, (_, f)) => markUsageInExpr(f, st, context) }
+    case Factor(l, ops)                  => ops.foldLeft(markUsageInExpr(l, state, context)) { case (st, (_, sm)) => markUsageInExpr(sm, st, context) }
+    case Summand(p, _, _)                => markUsageInExpr(p, state, context)
+    case IfStatement(cond, thenB, elseB) =>
+      val st1 = checkExpression(cond, state, context, markUsage = true)
+      val (st2, ct) = inferType(cond, st1, context)
+      val st3 = if !isOfType(BooleanType, ct, st2.table) then st2.addError(SemanticError("If statement condition must be boolean")) else st2
+      val stThen = checkBody(thenB, st3, context)
+      elseB.fold(stThen) { eb => checkBody(eb, stThen, context) }
+    case WhileLoop(cond, body) =>
+      val st1 = checkExpression(cond, state, context, markUsage = true)
+      val (st2, ct) = inferType(cond, st1, context)
+      val st3 = if !isOfType(BooleanType, ct, st2.table) then st2.addError(SemanticError("While loop condition must be boolean")) else st2
+      checkBody(body, st3, context.copy(isInLoop = true))
+    case ForLoop(loopVar, range, _, body) =>
+      val st1 = checkExpression(range.start, state, context, markUsage = true)
+      val (st2, tStart) = inferType(range.start, st1, context)
+      val (st3, tEnd) = range.end.map { endExpr =>
+        val stWithCheck = checkExpression(endExpr, st2, context, markUsage = true)
+        inferType(endExpr, stWithCheck, context)
+      }.getOrElse((st2, None))
+      val st4 = if !isOfType(IntegerType, tStart, st3.table) then st3.addError(SemanticError("for loop start value must be integer")) else st3
+      val st5 = tEnd.fold(st4)(t => if !isOfType(IntegerType, Some(t), st4.table) then st4.addError(SemanticError("for loop end value must be integer")) else st4)
+      val stWithVar = st5.withTable(st5.table.addVariable(VariableInfo(loopVar, Some(IntegerType), isInitialized = true, isUsed = false)))
+      checkBody(body, stWithVar, context.copy(isInLoop = true))
+    case PrintStatement(values) =>
+      values.foldLeft(state) { (st, e) => checkExpression(e, st, context, markUsage = true) }
     case _                               => state
 
   private def checkModPrimary(mp: ModifiablePrimary, state: SemState, context: SemanticContext, markUsage: Boolean): SemState = mp match
