@@ -261,12 +261,13 @@ object SyntaxAnalyzer:
         
         def parsePrintStatement(state: ParserState): ParseResult[PrintStatement] =
             def parseArguments(state: ParserState, acc: List[Expression]): ParseResult[List[Expression]] =
-                peekAndCheck(state)(_.tkType == TokenType.Comma) match
-                    case Left(_) => Left(()) 
-                    case Right(true) => parseExpression(state.discardN()).flatMap {
-                        case (s, e) => parseArguments(s, e :: acc)
-                    }
-                    case Right(false) => Right((state, acc))
+                state.peek match
+                    case None => Right((state, acc))  // End of input, return accumulated args
+                    case Some(Token(TokenType.Comma, _, _)) =>
+                        parseExpression(state.discardN()).flatMap {
+                            case (s, e) => parseArguments(s, e :: acc)
+                        }
+                    case Some(_) => Right((state, acc))  // No comma, done parsing args
 
             for 
                 s <- discardSpecific(state)(_.tkType == TokenType.Print)

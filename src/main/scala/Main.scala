@@ -176,15 +176,12 @@ object Main:
         |""".stripMargin
     )
 
-    parserShowcase(
+
+    semanticShowcase(
       """
-        |var a : integer is 10
-        |var b is 20
-        |var flag : boolean is true
-        |var pi is 3.1415
-        |
-        |print a, b, flag, pi
-        """.stripMargin
+        |var a is 1
+        |print a
+        |""".stripMargin
     )
 //
 //    parserShowcase(
