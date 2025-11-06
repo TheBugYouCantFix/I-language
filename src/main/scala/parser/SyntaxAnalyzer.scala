@@ -287,25 +287,40 @@ object SyntaxAnalyzer:
                     List(
                         Token(TokenType.Routine, _, _),
                         Token(TokenType.Identifier, idName, _),
-                        Token(TokenType.LeftBrace, _, _)
+                        Token(TokenType.LeftParen, _, _)
                     ),
                     nextState
                 ) =>
-                    for
-                        (s, params) <- parseParameters(nextState)
-                        s <- discardSpecific(s)(_.tkType == TokenType.RightBrace)
-                        b <- peekAndCheck(s)(_.tkType == TokenType.Colon)
-                        (s, type_) <- if b then parseType(s.discardN()).map(_.map(Some(_))) else Right((s, None))
-                    yield (s, RoutineHeader(idName, params, type_))
+                    // Allow empty parameter list
+                    peekAndCheck(nextState)(_.tkType == TokenType.RightParen).flatMap {
+                        case true =>
+                            val afterR = nextState.discardN()
+                            for
+                                b <- peekAndCheck(afterR)(_.tkType == TokenType.Colon)
+                                (s, type_) <- if b then parseType(afterR.discardN()).map(_.map(Some(_))) else Right((afterR, None))
+                            yield (s, RoutineHeader(idName, Nil, type_))
+                        case false =>
+                            for
+                                (s, params) <- parseParameters(nextState)
+                                s <- discardSpecific(s)(_.tkType == TokenType.RightParen)
+                                b <- peekAndCheck(s)(_.tkType == TokenType.Colon)
+                                (s, type_) <- if b then parseType(s.discardN()).map(_.map(Some(_))) else Right((s, None))
+                            yield (s, RoutineHeader(idName, params, type_))
+                    }
                 case _ => Left(())
 
         def parseRoutineBody(state: ParserState): ParseResult[RoutineBody] =
             state.advanceN() match
                 case (Token(TokenType.Is, _, _) :: Nil, nextState) =>
-                    for 
-                        (s, body) <- parseBody(nextState)
-                        s <- discardSpecific(s)(_.tkType == TokenType.End)
-                    yield (s, JustRoutineBody(body))
+                    // After 'is' accept either a block body or a single expression followed by 'end'
+                    parseBody(nextState) match
+                        case Right((sBody, body)) =>
+                            discardSpecific(sBody)(_.tkType == TokenType.End).map { sEnd => (sEnd, JustRoutineBody(body)) }
+                        case Left(_) =>
+                            for
+                                (sExpr, e) <- parseExpression(nextState)
+                                sEnd       <- discardSpecific(sExpr)(_.tkType == TokenType.End)
+                            yield (sEnd, RoutineBodyExpression(e))
                 case (Token(TokenType.Gteq, _, _) :: Nil, nextState) =>
                     parseExpression(nextState).map {
                         _.map(e => RoutineBodyExpression(e))

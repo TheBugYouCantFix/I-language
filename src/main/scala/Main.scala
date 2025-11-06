@@ -64,128 +64,128 @@ object Main:
         |numbers[4] := 20
         |""".stripMargin
     )
-//
-//    println("\n" + "=" * 60)
-//    println("Example 5: Routine Declaration and Call")
-//    println("=".repeat(60))
-//    semanticShowcase(
-//      """
-//        |routine add(x : integer, y : integer) : integer is
-//        |    x + y
-//        |end
-//        |
-//        |var result is add(5, 3)
-//        |""".stripMargin
-//    )
-//
-//    println("\n" + "=" * 60)
-//    println("Example 6: Routine Call Errors")
-//    println("=".repeat(60))
-//    semanticShowcase(
-//      """
-//        |routine add(x : integer, y : integer) : integer is
-//        |    x + y
-//        |end
-//        |
-//        |var result1 is add(5)
-//        |var result2 is add(5, 3, 2)
-//        |var result3 is add(5, true)
-//        |""".stripMargin
-//    )
-//
-//    println("\n" + "=" * 60)
-//    println("Example 7: Undeclared Routine")
-//    println("=".repeat(60))
-//    semanticShowcase(
-//      """
-//        |var result is unknownFunction(5)
-//        |""".stripMargin
-//    )
-//
-//    println("\n" + "=" * 60)
-//    println("Example 8: Control Flow - If/While with Boolean Conditions")
-//    println("=".repeat(60))
-//    semanticShowcase(
-//      """
-//        |var flag : boolean is true
-//        |var count : integer is 0
-//        |
-//        |if flag then
-//        |    count := count + 1
-//        |end
-//        |
-//        |while count < 5 loop
-//        |    count := count + 1
-//        |end
-//        |""".stripMargin
-//    )
-//
-//    println("\n" + "=" * 60)
-//    println("Example 9: Control Flow Type Errors")
-//    println("=".repeat(60))
-//    semanticShowcase(
-//      """
-//        |var num : integer is 5
-//        |
-//        |if num then
-//        |    num := 10
-//        |end
-//        |
-//        |while num loop
-//        |    num := num - 1
-//        |end
-//        |""".stripMargin
-//    )
-//
-//    println("\n" + "=" * 60)
-//    println("Example 10: Duplicate Declarations")
-//    println("=".repeat(60))
-//    semanticShowcase(
-//      """
-//        |var x : integer is 10
-//        |var x : integer is 20
-//        |var y is 5
-//        |var y is 6
-//        |""".stripMargin
-//    )
 
-//    semanticShowcase(
-//      """
-//        |var a : integer is 10
-//        |var b : boolean is true
-//        |var c is a + b
-//        |""".stripMargin
-//    )
-//
-//    semanticShowcase(
-//      """
-//        |type IntArray is array [5] integer
-//        |var numbers : IntArray
-//        |numbers[1] := 10
-//        |numbers[10] := 20
-//        |""".stripMargin
-//    )
-//
-//    semanticShowcase(
-//      """
-//        |routine add(x : integer, y : integer) : integer is
-//        |    x + y
-//        |end
-//        |
-//        |var result is add(5, 3)
-//        |""".stripMargin
-//    )
+    println("\n" + "=" * 60)
+    println("Example 5: Routine Declaration and Call")
+    println("=".repeat(60))
+    semanticShowcase(
+      """
+        |routine add(x : integer, y : integer) : integer is
+        |    x + y
+        |end
+        |
+        |var result is add(5, 3)
+        |""".stripMargin
+    )
 
-//    parserShowcase(
-//      """
-//        |var a : integer is 10
-//        |var b is 20
-//        |var flag : boolean is true
-//        |var pi is 3.1415
-//        |
-//        |print a, b, flag, pi
-//        """.stripMargin
-//    )
+    println("\n" + "=" * 60)
+    println("Example 6: Routine Call Errors")
+    println("=".repeat(60))
+    semanticShowcase(
+      """
+        |routine add(x : integer, y : integer) : integer is
+        |    x + y
+        |end
+        |
+        |var result1 is add(5)
+        |var result2 is add(5, 3, 2)
+        |var result3 is add(5, true)
+        |""".stripMargin
+    )
+
+    println("\n" + "=" * 60)
+    println("Example 7: Undeclared Routine")
+    println("=".repeat(60))
+    semanticShowcase(
+      """
+        |var result is unknownFunction(5)
+        |""".stripMargin
+    )
+
+    println("\n" + "=" * 60)
+    println("Example 8: Control Flow - If/While with Boolean Conditions")
+    println("=".repeat(60))
+    semanticShowcase(
+      """
+        |var flag : boolean is true
+        |var count : integer is 0
+        |
+        |if flag then
+        |    count := count + 1
+        |end
+        |
+        |while count < 5 loop
+        |    count := count + 1
+        |end
+        |""".stripMargin
+    )
+
+    println("\n" + "=" * 60)
+    println("Example 9: Control Flow Type Errors")
+    println("=".repeat(60))
+    semanticShowcase(
+      """
+        |var num : integer is 5
+        |
+        |if num then
+        |    num := 10
+        |end
+        |
+        |while num loop
+        |    num := num - 1
+        |end
+        |""".stripMargin
+    )
+
+    println("\n" + "=" * 60)
+    println("Example 10: Duplicate Declarations")
+    println("=".repeat(60))
+    semanticShowcase(
+      """
+        |var x : integer is 10
+        |var x : integer is 20
+        |var y is 5
+        |var y is 6
+        |""".stripMargin
+    )
+
+    semanticShowcase(
+      """
+        |var a : integer is 10
+        |var b : boolean is true
+        |var c is a + b
+        |""".stripMargin
+    )
+
+    semanticShowcase(
+      """
+        |type IntArray is array [5] integer
+        |var numbers : IntArray
+        |numbers[1] := 10
+        |numbers[10] := 20
+        |""".stripMargin
+    )
+
+    semanticShowcase(
+      """
+        |routine add(x : integer, y : integer) : integer is
+        |    x + y
+        |end
+        |
+        |var result is add(5, 3)
+        |""".stripMargin
+    )
+
+    parserShowcase(
+      """
+        |var a : integer is 10
+        |var b is 20
+        |var flag : boolean is true
+        |var pi is 3.1415
+        |
+        |print a, b, flag, pi
+        """.stripMargin
+    )
 //
 //    parserShowcase(
 //      """

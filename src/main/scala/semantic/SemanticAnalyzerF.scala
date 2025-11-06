@@ -183,8 +183,38 @@ object SemanticAnalyzer {
   }
 
   private def checkExpression(expr: Expression, state: SemState, context: SemanticContext, markUsage: Boolean): SemState = {
+    def validateExpr(e: Expression, st: SemState): SemState = e match
+      case RoutineCallExpression(id, args) =>
+        st.table.lookupRoutine(id) match
+          case Some(r) =>
+            val stCount = if r.parameters.length != args.length then st.addError(SemanticError(s"Wrong number of arguments in call to '$id': expected ${r.parameters.length}, got ${args.length}")) else st
+            args.zipAll(r.parameters, null, null).foldLeft(stCount) {
+              case (s0, (arg, param)) if arg != null && param != null =>
+                val (s1, at) = inferType(arg, s0, context)
+                if !areTypesCompatible(param.parameterType, at, s1.table) then s1.addError(SemanticError(s"Type mismatch in argument to '$id': parameter '${param.identifier}' expects ${typeToString(param.parameterType)} but got ${typeToStringOpt(at)}")) else s1
+              case (s0, (arg, _)) if arg != null =>
+                val (s1, _) = inferType(arg, s0, context); s1
+              case (s0, _) => s0
+            }
+          case None =>
+            val sUnd = st.addError(SemanticError(s"Undeclared routine: '$id'"))
+            args.foldLeft(sUnd) { (s0, a) => val (s1, _) = inferType(a, s0, context); s1 }
+      case ParenthesizedExpression(inner) => validateExpr(inner, st)
+      case Relation(left, comps) =>
+        val st1 = validateExpr(left, st)
+        comps.foldLeft(st1) { case (s0, (_, sm)) => validateExpr(sm, s0) }
+      case Simple(left, ops) =>
+        val st1 = validateExpr(left, st)
+        ops.foldLeft(st1) { case (s0, (_, f)) => validateExpr(f, s0) }
+      case Factor(left, ops) =>
+        val st1 = validateExpr(left, st)
+        ops.foldLeft(st1) { case (s0, (_, sm)) => validateExpr(sm, s0) }
+      case Summand(primary, _, _) => validateExpr(primary, st)
+      case _ => st
+
     val (st1, _) = inferType(expr, state, context)
-    if markUsage then markUsageInExpr(expr, st1) else st1
+    val st2 = validateExpr(expr, st1)
+    if markUsage then markUsageInExpr(expr, st2) else st2
   }
 
   private def markUsageInExpr(expr: Expression, state: SemState): SemState = expr match
@@ -342,6 +372,8 @@ object SemanticAnalyzer {
 
   // Constant evaluation (subset)
   private def evaluateConstant(expr: Expression, table: SymbolTable): Option[Int] = expr match
+    case Relation(left, Nil) => evaluateConstant(left, table)
+    case Relation(_, _)      => None
     case IntegerLiteral(v) => Some(v)
     case ParenthesizedExpression(e) => evaluateConstant(e, table)
     case Simple(left, ops) =>
