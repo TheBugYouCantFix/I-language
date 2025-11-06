@@ -247,7 +247,7 @@ object SemanticAnalyzer {
     case ModifiablePrimaryExpression(mp) => inferModPrimaryType(mp, state, context)
     case RoutineCallExpression(id, _)    => state.table.lookupRoutine(id) match
       case Some(r) => (state, r.returnType)
-      case None    => (state.addError(SemanticError(s"Undeclared routine: '$id'")), None)
+      case None    => (state, None)  // Don't report error here - validateExpr will handle it
     case ParenthesizedExpression(e)      => inferType(e, state, context)
     case Relation(left, Nil)             => inferType(left, state, context)
     case Relation(_, _)                  => (state, Some(BooleanType))
