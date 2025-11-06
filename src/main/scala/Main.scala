@@ -21,16 +21,16 @@ object Main:
 //        |""".stripMargin
 //    )
     
-    println("=".repeat(60))
-    println("Example 1: Successful Analysis - Type inference and declarations")
-    println("=".repeat(60))
-    semanticShowcase(
-      """
-        |var a : integer is 10
-        |var b is 20
-        |var sum is a + b
-        |""".stripMargin
-    )
+//    println("=".repeat(60))
+//    println("Example 1: Successful Analysis - Type inference and declarations")
+//    println("=".repeat(60))
+//    semanticShowcase(
+//      """
+//        |var a : integer is 10
+//        |var b is 20
+//        |var sum is a + b
+//        |""".stripMargin
+//    )
 
 //    println("\n" + "=" * 60)
 //    println("Example 2: Type Mismatch Error")
@@ -42,7 +42,7 @@ object Main:
 //        |var c is a + b
 //        |""".stripMargin
 //    )
-//
+
 //    println("\n" + "=" * 60)
 //    println("Example 3: Undeclared Variable Error")
 //    println("=".repeat(60))
@@ -53,17 +53,17 @@ object Main:
 //        |""".stripMargin
 //    )
 //
-//    println("\n" + "=" * 60)
-//    println("Example 4: Array Type and Bounds")
-//    println("=".repeat(60))
-//    semanticShowcase(
-//      """
-//        |type IntArray is array [5] integer
-//        |var numbers : IntArray
-//        |numbers[0] := 10
-//        |numbers[4] := 20
-//        |""".stripMargin
-//    )
+    println("\n" + "=" * 60)
+    println("Example 4: Array Type and Bounds")
+    println("=".repeat(60))
+    semanticShowcase(
+      """
+        |type IntArray is array [4] integer
+        |var numbers : IntArray
+        |numbers[0] := 10
+        |numbers[4] := 20
+        |""".stripMargin
+    )
 //
 //    println("\n" + "=" * 60)
 //    println("Example 5: Routine Declaration and Call")
