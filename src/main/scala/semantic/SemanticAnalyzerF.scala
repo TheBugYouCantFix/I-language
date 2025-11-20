@@ -375,7 +375,7 @@ object SemanticAnalyzer {
       case TypeAlias(n) => st.lookupType(n).exists(ti => isOfType(typeToCheck, Some(ti.typeDefinition), st))
       case _ => false
     }
-    
+
   private def isNumericType(value: Type, table: SymbolTable): Boolean = {
     val tOpt = Some(value)
     isOfType(IntegerType, tOpt, table) || isOfType(RealType, tOpt, table)
