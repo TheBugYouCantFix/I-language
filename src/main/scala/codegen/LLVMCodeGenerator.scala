@@ -2,6 +2,7 @@ package codegen
 
 import parser.structures.*
 import cats.data.State
+import scala.annotation.tailrec
 
 object LLVMCodeGenerator {
   
@@ -11,6 +12,7 @@ object LLVMCodeGenerator {
     variables: Map[String, String] = Map.empty, // name -> register (pointer)
     variableTypes: Map[String, String] = Map.empty, // name -> LLVM type (e.g., "i32", "i1")
     variableAllocaTypes: Map[String, String] = Map.empty, // name -> LLVM alloca type (e.g., "[5 x i32]", "i32")
+    variableTypeDefs: Map[String, Type] = Map.empty,
     functions: Map[String, RoutineHeader] = Map.empty,
     types: Map[String, Type] = Map.empty,
     currentFunction: Option[String] = None
@@ -29,8 +31,16 @@ object LLVMCodeGenerator {
     def addVariableWithType(name: String, reg: String, llvmType: String): CodeGenState =
       copy(variables = variables.updated(name, reg), variableTypes = variableTypes.updated(name, llvmType))
     
-    def addVariableWithAllocaType(name: String, reg: String, llvmType: String, allocaType: String): CodeGenState =
-      copy(variables = variables.updated(name, reg), variableTypes = variableTypes.updated(name, llvmType), variableAllocaTypes = variableAllocaTypes.updated(name, allocaType))
+    def addVariableWithAllocaType(name: String, reg: String, llvmType: String, allocaType: String, originalType: Option[Type] = None): CodeGenState =
+      copy(
+        variables = variables.updated(name, reg),
+        variableTypes = variableTypes.updated(name, llvmType),
+        variableAllocaTypes = variableAllocaTypes.updated(name, allocaType),
+        variableTypeDefs =
+          originalType match
+            case Some(t) => variableTypeDefs.updated(name, t)
+            case None    => variableTypeDefs
+      )
     
     def addFunction(name: String, header: RoutineHeader): CodeGenState =
       copy(functions = functions.updated(name, header))
@@ -95,11 +105,12 @@ object LLVMCodeGenerator {
     val (finalState, code) = program.declarations.foldLeft((state, "")) { case ((st, acc), decl) =>
       decl match
         case VariableDeclaration(name, typeOpt, initOpt) =>
-          val allocaType = typeToLLVMAllocaType(typeOpt.getOrElse(IntegerType), st)
-          val valueType = typeToLLVMType(typeOpt.getOrElse(IntegerType), st)
+          val declaredType = typeOpt.getOrElse(IntegerType)
+          val allocaType = typeToLLVMAllocaType(declaredType, st)
+          val valueType = typeToLLVMType(declaredType, st)
           // First allocate the register for alloca
           val (st1, reg) = st.nextRegister()
-          val st2 = st1.addVariableWithAllocaType(name, reg, valueType, allocaType)
+          val st2 = st1.addVariableWithAllocaType(name, reg, valueType, allocaType, Some(declaredType))
           // Generate alloca - alloca returns a pointer, so we use the alloca type
           val allocaCode = s"  $reg = alloca $allocaType\n"
           initOpt match
@@ -109,14 +120,7 @@ object LLVMCodeGenerator {
               val storeCode = s"  store $valueType $valueReg, $allocaType* $reg\n"
               (st3, acc + allocaCode + exprCode + storeCode)
             case None =>
-              // Initialize with zero value based on type
-              val zeroValue = allocaType match
-                case t if t.startsWith("[") && t.endsWith("]") => "zeroinitializer" // Array types
-                case t if t.endsWith("*") => "null" // Pointer types
-                case "i1" => "0"
-                case "i32" => "0"
-                case "double" => "0.0"
-                case _ => "null"
+              val zeroValue = zeroValueForType(allocaType)
               val storeCode = s"  store $allocaType $zeroValue, $allocaType* $reg\n"
               (st2, acc + allocaCode + storeCode)
         
@@ -160,7 +164,7 @@ object LLVMCodeGenerator {
       val code = acc + s"  $allocaReg = alloca $paramType\n" +
         s"  store $paramType %${p.identifier}, $paramType* $allocaReg\n"
       // Store the alloca register (pointer) in variables map with its type
-      val st2 = st1.addVariableWithAllocaType(p.identifier, allocaReg, paramType, paramType)
+          val st2 = st1.addVariableWithAllocaType(p.identifier, allocaReg, paramType, paramType, Some(p.parameterType))
       (st2, code)
     }
     sb += paramCode
@@ -342,11 +346,12 @@ object LLVMCodeGenerator {
     val (st1, declCode) = body.declarations.foldLeft((state, "")) { case ((st, acc), decl) =>
       decl match
         case VariableDeclaration(name, typeOpt, initOpt) =>
-          val allocaType = typeToLLVMAllocaType(typeOpt.getOrElse(IntegerType), st)
-          val valueType = typeToLLVMType(typeOpt.getOrElse(IntegerType), st)
+          val declaredType = typeOpt.getOrElse(IntegerType)
+          val allocaType = typeToLLVMAllocaType(declaredType, st)
+          val valueType = typeToLLVMType(declaredType, st)
           // First allocate the register for alloca
           val (st1, reg) = st.nextRegister()
-          val st2 = st1.addVariableWithAllocaType(name, reg, valueType, allocaType)
+          val st2 = st1.addVariableWithAllocaType(name, reg, valueType, allocaType, Some(declaredType))
           // Generate alloca - alloca returns a pointer, so we use the alloca type
           val allocaCode = s"  $reg = alloca $allocaType\n"
           val (st3, initCode, valueReg) = initOpt match
@@ -355,19 +360,9 @@ object LLVMCodeGenerator {
               val (st3, code, reg, regType) = generateExpression(expr, st2)
               (st3, code, reg)
             case None => 
-              val zeroValue = allocaType match
-                case t if t.endsWith("*") => "null"
-                case "i1" => "0"
-                case "i32" => "0"
-                case "double" => "0.0"
-                case _ => "null"
+              val zeroValue = zeroValueForType(allocaType)
               (st2, "", zeroValue)
-          val zeroValue = allocaType match
-            case t if t.endsWith("*") => "null"
-            case "i1" => "0"
-            case "i32" => "0"
-            case "double" => "0.0"
-            case _ => "null"
+          val zeroValue = zeroValueForType(allocaType)
           val storeCode = if initOpt.isDefined then 
             s"  store $valueType $valueReg, $allocaType* $reg\n"
           else 
@@ -513,121 +508,58 @@ object LLVMCodeGenerator {
       generateExpression(e, state)
 
   private def generateModifiablePrimary(mp: ModifiablePrimary, state: CodeGenState): (CodeGenState, String, String) = mp match
-    case ModifiablePrimaryNode(id, memberAccesses, arrayAccesses) =>
-      val (st1, baseReg) = state.variables.get(id) match
-        case Some(reg) => (state, reg)
-        case None =>
-          val (st1, newReg) = state.nextRegister()
-          (st1.addVariable(id, newReg), newReg)
-      
-      // Handle array accesses for assignment target
-      if arrayAccesses.nonEmpty then
-        val arrayType = st1.variableAllocaTypes.get(id).getOrElse("i32")
-        val actualArrayType = if arrayType.startsWith("[") && arrayType.contains(" x ") then
-          arrayType
-        else
-          "i32"
-        
-        // Process array accesses to get element pointer
-        val (st2, gepCode, finalReg) = arrayAccesses.foldLeft((st1, "", baseReg)) { case ((st, code, currentReg), ArrayAccess(indexExpr)) =>
-          val (st1, indexCode, indexReg, indexType) = generateExpression(indexExpr, st)
-          val (st2, gepReg) = st1.nextRegister()
-          val gepInstr = s"  $gepReg = getelementptr inbounds $actualArrayType, $actualArrayType* $currentReg, i32 0, i32 $indexReg\n"
-          (st2, code + indexCode + gepInstr, gepReg)
-        }
-        (st2, gepCode, finalReg)
-      else
-        (st1, "", baseReg)
+    case node: ModifiablePrimaryNode =>
+      val (st, code, reg, _) = resolveAddress(node, state)
+      (st, code, reg)
 
   private def generateModifiablePrimaryLoad(mp: ModifiablePrimary, state: CodeGenState): (CodeGenState, String, String, String) = mp match
-    case ModifiablePrimaryNode(id, memberAccesses, arrayAccesses) =>
-      val (st1, baseReg) = state.variables.get(id) match
-        case Some(reg) => (state, reg)
-        case None =>
-          // Variable not found, create a new alloca for it
-          val (st1, allocaReg) = state.nextRegister()
-          val valueType = "i32" // Default type
-          val st2 = st1.addVariableWithAllocaType(id, allocaReg, valueType, valueType)
-          (st2, allocaReg)
-      
-      // Handle array accesses
-      val (st2, gepCode, finalReg, elemType) = if arrayAccesses.nonEmpty then
-        // Get the alloca type (e.g., "[5 x i32]") from variableAllocaTypes
-        val arrayType = st1.variableAllocaTypes.get(id).getOrElse("i32")
-        // Extract element type from array type
-        val (actualArrayType, actualElemType) = if arrayType.startsWith("[") && arrayType.contains(" x ") then
-          val endIdx = arrayType.indexOf(" x ")
-          val startIdx = arrayType.indexOf("[") + 1
-          val size = arrayType.substring(startIdx, endIdx)
-          val typePart = arrayType.substring(endIdx + 3)
-          val elemTypeStr = typePart.takeWhile(_ != ']')
-          (arrayType, elemTypeStr)
-        else
-          ("i32", "i32") // Not an array, treat as scalar
-        
-        // Process array accesses
-        arrayAccesses.foldLeft((st1, "", baseReg, actualElemType)) { case ((st, code, currentReg, currentElemType), ArrayAccess(indexExpr)) =>
-          val (st1, indexCode, indexReg, indexType) = generateExpression(indexExpr, st)
-          val (st2, gepReg) = st1.nextRegister()
-          // getelementptr for array: getelementptr inbounds [N x T], [N x T]* %base, i32 0, i32 %index
-          val gepInstr = s"  $gepReg = getelementptr inbounds $actualArrayType, $actualArrayType* $currentReg, i32 0, i32 $indexReg\n"
-          (st2, code + indexCode + gepInstr, gepReg, currentElemType)
-        }
-      else
-        val elemType = st1.variableTypes.get(id).getOrElse("i32")
-        (st1, "", baseReg, elemType)
-      
-      val (st3, loadReg) = st2.nextRegister()
-      val loadCode = s"  $loadReg = load $elemType, $elemType* $finalReg\n"
-      (st3, gepCode + loadCode, loadReg, elemType)
+    case node: ModifiablePrimaryNode =>
+      val (st1, addrCode, addrReg, typeOpt) = resolveAddress(node, state)
+      val resolvedType = typeOpt.map(resolveTypeAliases(_, st1))
+      val elemType = resolvedType.map(typeToLLVMType(_, st1)).orElse(state.variableTypes.get(node.identifier)).getOrElse("i32")
+      val (st2, loadReg) = st1.nextRegister()
+      val loadCode = s"  $loadReg = load $elemType, $elemType* $addrReg\n"
+      (st2, addrCode + loadCode, loadReg, elemType)
 
   private def getModifiablePrimaryType(mp: ModifiablePrimary, state: CodeGenState): (String, String) = 
     mp match
       case ModifiablePrimaryNode(id, _, _) =>
         state.variableTypes.get(id).map(("", _)).getOrElse(("", "i32")) // Default to i32 if unknown
       case _ => ("", "i32")
-
-  private def typeToLLVMType(t: Type, state: CodeGenState): String = t match
-    case IntegerType => "i32"
-    case RealType => "double"
-    case BooleanType => "i1"
-    case ArrayType(_, elementType) =>
-      val elemType = typeToLLVMType(elementType, state)
-      s"$elemType*"
-    case RecordType(_) => "i8*" // Simplified
-    case TypeAlias(name) =>
-      state.types.get(name).map(typeToLLVMType(_, state)).getOrElse("i32")
+  
+  private def typeToLLVMType(t: Type, state: CodeGenState): String =
+    resolveTypeAliases(t, state) match
+      case IntegerType => "i32"
+      case RealType    => "double"
+      case BooleanType => "i1"
+      case ArrayType(_, elementType) =>
+        val elemType = typeToLLVMType(elementType, state)
+        s"$elemType*"
+      case record: RecordType =>
+        recordToStructType(record, state)
+      case TypeAlias(name) =>
+        state.types.get(name).map(typeToLLVMType(_, state)).getOrElse("i32")
+      case _ => "i32"
   
   // Get the value type for alloca (for arrays, return [N x T] for fixed-size arrays; for primitives, return the type itself)
-  private def typeToLLVMAllocaType(t: Type, state: CodeGenState): String = t match
-    case IntegerType => "i32"
-    case RealType => "double"
-    case BooleanType => "i1"
-    case ArrayType(sizeOpt, elementType) =>
-      // For fixed-size arrays, use [N x T] format
-      val elemType = typeToLLVMType(elementType, state)
-      sizeOpt match
-        case Some(sizeExpr) =>
-          // Try to extract integer literal from expression (may be wrapped in Summand/Factor/Simple/Relation)
-          def extractIntLiteral(expr: Expression): Option[Int] = expr match
-            case parser.structures.IntegerLiteral(value) => Some(value)
-            case parser.structures.Summand(primary, signOpt, isNot) => primary match
-              case parser.structures.IntegerLiteral(value) => Some(value)
-              case _ => None
-            case parser.structures.Factor(left, operations) => 
-              if operations.isEmpty then extractIntLiteral(left) else None
-            case parser.structures.Simple(left, operations) => 
-              if operations.isEmpty then extractIntLiteral(left) else None
-            case parser.structures.Relation(left, comparisons) => 
-              if comparisons.isEmpty then extractIntLiteral(left) else None
-            case _ => None
-          extractIntLiteral(sizeExpr) match
-            case Some(size) => s"[$size x $elemType]"
-            case None => s"$elemType*" // If not a constant, use pointer
-        case None => s"$elemType*" // Dynamic arrays use pointer
-    case RecordType(_) => "i8*"
-    case TypeAlias(name) =>
-      state.types.get(name).map(typeToLLVMAllocaType(_, state)).getOrElse("i32")
+  private def typeToLLVMAllocaType(t: Type, state: CodeGenState): String =
+    resolveTypeAliases(t, state) match
+      case IntegerType => "i32"
+      case RealType    => "double"
+      case BooleanType => "i1"
+      case arr @ ArrayType(sizeOpt, elementType) =>
+        val elemType = typeToLLVMType(elementType, state)
+        sizeOpt match
+          case Some(sizeExpr) =>
+            extractIntLiteral(sizeExpr) match
+              case Some(size) => s"[$size x $elemType]"
+              case None       => s"$elemType*"
+          case None => s"$elemType*"
+      case record: RecordType =>
+        recordToStructType(record, state)
+      case TypeAlias(name) =>
+        state.types.get(name).map(typeToLLVMAllocaType(_, state)).getOrElse("i32")
+      case _ => "i32"
 
   private def binaryOpToLLVM(op: BinaryOperator): String = op match
     case Plus => "add"
@@ -656,5 +588,114 @@ object LLVMCodeGenerator {
       // Convert to boolean by comparing with 0
       val (st1, boolReg) = state.nextRegister()
       (st1, s"  $boolReg = icmp ne $valueType $valueReg, 0\n", boolReg)
+
+  private def resolveAddress(node: ModifiablePrimaryNode, state: CodeGenState): (CodeGenState, String, String, Option[Type]) =
+    val (baseState, baseReg) = state.variables.get(node.identifier) match
+      case Some(reg) => (state, reg)
+      case None =>
+        val (st1, allocaReg) = state.nextRegister()
+        val st2 = st1.addVariableWithAllocaType(node.identifier, allocaReg, "i32", "i32")
+        (st2, allocaReg)
+
+    val baseTypeOpt    = baseState.variableTypeDefs.get(node.identifier)
+    val baseAllocaOpt  = baseState.variableAllocaTypes.get(node.identifier)
+
+    val (stateAfterMembers, memberCode, memberReg, memberTypeOpt, memberAllocaOpt) =
+      node.memberAccesses.foldLeft((baseState, "", baseReg, baseTypeOpt, baseAllocaOpt)) {
+        case ((st, code, currentReg, Some(currentType), _), member) =>
+          resolveTypeAliases(currentType, st) match
+            case record: RecordType =>
+              val structType = typeToLLVMAllocaType(record, st)
+              val fieldsWithIndex = record.fields.zipWithIndex
+              fieldsWithIndex.find(_._1.identifier == member.identifier) match
+                case Some((fieldDecl, idx)) =>
+                  val fieldType = fieldDecl.typeAnnotation.getOrElse(IntegerType)
+                  val fieldAllocaType = typeToLLVMAllocaType(fieldType, st)
+                  val (stNext, gepReg) = st.nextRegister()
+                  val gepInstr = s"  $gepReg = getelementptr inbounds $structType, $structType* $currentReg, i32 0, i32 $idx\n"
+                  (stNext, code + gepInstr, gepReg, Some(fieldType), Some(fieldAllocaType))
+                case None =>
+                  (st, code, currentReg, None, None)
+            case other =>
+              (st, code, currentReg, Some(other), Some(typeToLLVMAllocaType(other, st)))
+        case ((st, code, currentReg, None, allocOpt), member) =>
+          (st, code, currentReg, None, allocOpt)
+      }
+
+    val (finalState, totalCode, finalReg, finalTypeOpt, finalAllocaOpt) =
+      node.arrayAccesses.foldLeft((stateAfterMembers, memberCode, memberReg, memberTypeOpt, memberAllocaOpt)) {
+        case ((st, code, currentReg, Some(currentType), currentAllocaOpt), ArrayAccess(indexExpr)) =>
+          resolveTypeAliases(currentType, st) match
+            case arrayType @ ArrayType(_, elemType) =>
+              val arrayAllocaType = currentAllocaOpt.getOrElse(typeToLLVMAllocaType(arrayType, st))
+              val elemAllocaType  = typeToLLVMAllocaType(elemType, st)
+              val (stIdx, indexCode, indexReg, _) = generateExpression(indexExpr, st)
+              val (stNext, gepReg) = stIdx.nextRegister()
+              val gepInstr =
+                if arrayAllocaType.startsWith("[") then
+                  s"  $gepReg = getelementptr inbounds $arrayAllocaType, $arrayAllocaType* $currentReg, i32 0, i32 $indexReg\n"
+                else
+                  s"  $gepReg = getelementptr inbounds $elemAllocaType, $elemAllocaType* $currentReg, i32 $indexReg\n"
+              (stNext, code + indexCode + gepInstr, gepReg, Some(elemType), Some(elemAllocaType))
+            case other =>
+              (st, code, currentReg, Some(other), currentAllocaOpt)
+        case ((st, code, currentReg, None, currentAllocaOpt), ArrayAccess(indexExpr)) =>
+          val (stIdx, indexCode, indexReg, _) = generateExpression(indexExpr, st)
+          val (stNext, gepReg) = stIdx.nextRegister()
+          val fallbackType = currentAllocaOpt.getOrElse("i32")
+          val gepInstr =
+            if fallbackType.startsWith("[") then
+              s"  $gepReg = getelementptr inbounds $fallbackType, $fallbackType* $currentReg, i32 0, i32 $indexReg\n"
+            else
+              s"  $gepReg = getelementptr inbounds i32, i32* $currentReg, i32 $indexReg\n"
+          (stNext, code + indexCode + gepInstr, gepReg, None, Some("i32"))
+      }
+
+    (finalState, totalCode, finalReg, finalTypeOpt)
+
+  private def zeroValueForType(allocaType: String): String =
+    if allocaType.startsWith("[") || allocaType.startsWith("{") then "zeroinitializer"
+    else if allocaType.endsWith("*") then "null"
+    else
+      allocaType match
+        case "i1"     => "0"
+        case "i32"    => "0"
+        case "double" => "0.0"
+        case _        => "zeroinitializer"
+
+  @tailrec
+  private def resolveTypeAliases(t: Type, state: CodeGenState, seen: Set[String] = Set.empty): Type = t match
+    case TypeAlias(name) if !seen.contains(name) =>
+      state.types.get(name) match
+        case Some(resolved) => resolveTypeAliases(resolved, state, seen + name)
+        case None           => t
+    case _ => t
+
+  private def recordToStructType(record: RecordType, state: CodeGenState): String =
+    val fieldTypes = record.fields.map { field =>
+      val fieldType = field.typeAnnotation.getOrElse(IntegerType)
+      typeToLLVMType(fieldType, state)
+    }
+    val inside = if fieldTypes.isEmpty then "" else fieldTypes.mkString(", ")
+    s"{ $inside }"
+
+  private def extractIntLiteral(expr: Expression): Option[Int] = expr match
+    case parser.structures.IntegerLiteral(value) => Some(value)
+    case parser.structures.Summand(primary, signOpt, _) =>
+      extractPrimaryLiteral(primary).map { base =>
+        signOpt match
+          case Some(Negative) => -base
+          case _              => base
+      }
+    case parser.structures.Factor(left, ops) if ops.isEmpty => extractIntLiteral(left)
+    case parser.structures.Simple(left, ops) if ops.isEmpty => extractIntLiteral(left)
+    case parser.structures.Relation(left, comps) if comps.isEmpty => extractIntLiteral(left)
+    case parser.structures.ParenthesizedExpression(inner) => extractIntLiteral(inner)
+    case _ => None
+
+  private def extractPrimaryLiteral(primary: Primary): Option[Int] = primary match
+    case parser.structures.IntegerLiteral(value) => Some(value)
+    case parser.structures.ParenthesizedExpression(inner) => extractIntLiteral(inner)
+    case _ => None
 }
 

@@ -55,7 +55,9 @@ object Main:
         |end
         |""".stripMargin
     )
-      llvmShowcase(
+
+    println("\n" + "=" * 60)
+    llvmShowcase(
         """
           |type Person is record
           | var name : integer
@@ -65,7 +67,10 @@ object Main:
           |var p1 : Person
           |p1.name := 12
           |p1.age := 30
+          |print p1.name, p1.age
           |
+          |p1.age := p1.age + 5
+          |p1.name := p1.name + 7
           |print p1.name, p1.age
           |""".stripMargin
       )
