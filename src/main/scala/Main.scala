@@ -146,3 +146,4 @@ object Main:
           val outputFile = java.io.File("output.ll")
           java.nio.file.Files.write(java.nio.file.Paths.get("output.ll"), llvmIR.getBytes)
           println(s"LLVM IR written to: ${outputFile.getAbsolutePath}")
+          println(s"to execute th llvm IR run: clang output.ll -o program && ./program")
