@@ -153,7 +153,7 @@ object SyntaxAnalyzer:
         def parseRoutineCall(state: ParserState): ParseResult[RoutineCall] = 
             def parseArguments(state: ParserState, acc: List[Expression]): Either[ParserError, (ParserState, List[Expression])] =
                 state.peek match
-                    case Some(Token(TokenType.RightParen, _, _)) => Right((state.discardN(), acc))
+                    case Some(Token(TokenType.RightParen, _, _)) => Right((state.discardN(), acc.reverse))
                     case Some(Token(TokenType.Comma, _, _)) =>
                         if acc == Nil then Left(()) else parseExpression(state.discardN()).flatMap {
                             case (s, e) => parseArguments(s, e :: acc)
@@ -262,12 +262,12 @@ object SyntaxAnalyzer:
         def parsePrintStatement(state: ParserState): ParseResult[PrintStatement] =
             def parseArguments(state: ParserState, acc: List[Expression]): ParseResult[List[Expression]] =
                 state.peek match
-                    case None => Right((state, acc))  // End of input, return accumulated args
+                    case None => Right((state, acc.reverse))  // End of input, return accumulated args
                     case Some(Token(TokenType.Comma, _, _)) =>
                         parseExpression(state.discardN()).flatMap {
                             case (s, e) => parseArguments(s, e :: acc)
                         }
-                    case Some(_) => Right((state, acc))  // No comma, done parsing args
+                    case Some(_) => Right((state, acc.reverse))  // No comma, done parsing args
 
             for 
                 s <- discardSpecific(state)(_.tkType == TokenType.Print)
@@ -335,7 +335,7 @@ object SyntaxAnalyzer:
                     case Right(true) => parseParameterDeclaration(state.discardN()).flatMap {
                         case (s, paramDecl) => loop(s, paramDecl :: acc)
                     }
-                    case Right(false) => Right((state, acc))
+                    case Right(false) => Right((state, acc.reverse))
             
             parseParameterDeclaration(state).flatMap {
                 case (s, paramDecl) => loop(s, paramDecl :: Nil)
