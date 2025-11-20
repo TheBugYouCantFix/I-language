@@ -102,7 +102,7 @@ object SyntaxAnalyzer:
             def parseRecordType(acc: List[VariableDeclaration], state: ParserState): Either[ParserError, (ParserState, List[VariableDeclaration])] = {
                 state.peek match
                     case Some(Token(TokenType.End, _, _)) =>
-                        Right((state.discardN(), acc))
+                        Right((state.discardN(), acc.reverse))
                     case Some(_) => parseVariableDeclaration(state).flatMap {
                         case (nextState, varDecl) => parseRecordType(varDecl :: acc, nextState)
                     }
