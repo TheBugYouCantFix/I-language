@@ -76,13 +76,12 @@ object SemanticAnalyzer {
   private def collectDeclaration(decl: Declaration, state: SemState, context: SemanticContext): SemState = decl match
     case VariableDeclaration(name, tOpt, initOpt) =>
       if state.table.variables.contains(name) then state.addError(SemanticError(s"Duplicate variable declaration: '$name'"))
-      else {
+      else
         // inferring type in case it was not specified explicitly
-        val (st, inferredT) = (tOpt, initOpt) match
-          case (None, Some(expr)) => inferType(expr, state, context)
-          case _ => (state, tOpt)
-        st.withTable(state.table.addVariable(VariableInfo(name, inferredT, initOpt.isDefined, isUsed = false)))
-      }
+//        val (st, inferredT) = (tOpt, initOpt) match
+//          case (None, Some(expr)) => inferType(expr, state, context)
+//          case _ => (state, tOpt)
+        state.withTable(state.table.addVariable(VariableInfo(name, tOpt, initOpt.isDefined, isUsed = false)))
 
     case TypeDeclaration(name, typeDef) =>
       if state.table.types.contains(name) then state.addError(SemanticError(s"Duplicate type declaration: '$name'"))
@@ -101,9 +100,14 @@ object SemanticAnalyzer {
       initOpt match
         case Some(init) =>
           val (st2, initType) = inferType(init, st1, context)
-          val st3 = tOpt.fold(st2) { declared =>
-            if !areTypesCompatible(declared, initType, st2.table) then st2.addError(SemanticError(s"Type mismatch: variable '$name' declared as ${typeToString(declared)} but initialized with ${typeToStringOpt(initType)}"))
-            else st2
+          val st2b = if tOpt.isEmpty && initType.isDefined then
+            st2.withTable(st2.table.addVariable(
+              st2.table.lookupVariable(name).get.copy(varType = initType)
+            ))
+          else st2
+          val st3 = tOpt.fold(st2b) { declared =>
+            if !areTypesCompatible(declared, initType, st2b.table) then st2b.addError(SemanticError(s"Type mismatch: variable '$name' declared as ${typeToString(declared)} but initialized with ${typeToStringOpt(initType)}"))
+            else st2b
           }
           checkExpression(init, st3, context, markUsage = true)
         case None => st1
@@ -264,6 +268,11 @@ object SemanticAnalyzer {
         checkArrayBounds(access.index, st3)
       }
 
+  private def resolveTypeAlias(t: Type, table: SymbolTable): Type = t match {
+    case TypeAlias(name) => table.lookupType(name).map(_.typeDefinition).getOrElse(t)
+    case _ => t
+  }
+
   private def inferType(expr: Expression, state: SemState, context: SemanticContext): (SemState, Option[Type]) = expr match
     case IntegerLiteral(_)  => (state, Some(IntegerType))
     case RealLiteral(_)     => (state, Some(RealType))
@@ -279,7 +288,9 @@ object SemanticAnalyzer {
       val (st1, lt) = inferType(left, state, context)
       ops.foldLeft((st1, lt)) { case ((st, ct), (op, f)) =>
         val (st2, rt) = inferType(f, st, context)
-        (ct, rt) match
+        val resolvedLeft = ct.map(t => resolveTypeAlias(t, st2.table))
+        val resolvedRight = rt.map(t => resolveTypeAlias(t, st2.table))
+        (resolvedLeft, resolvedRight) match
           case (Some(t1), Some(t2)) if isNumericType(t1, st2.table) && isNumericType(t2, st2.table) => (st2, promoteNumeric(Some(t1), Some(t2)))
           case (Some(BooleanType), Some(BooleanType))                                                => (st2, Some(BooleanType))
           case (Some(t1), Some(t2)) => (st2.addError(SemanticError(s"Invalid operation: ${binOpToString(op)} applied to ${typeToString(t1)} and ${typeToString(t2)}")), None)
@@ -303,39 +314,42 @@ object SemanticAnalyzer {
 
   private def inferModPrimaryType(mp: ModifiablePrimary, state: SemState, context: SemanticContext): (SemState, Option[Type]) = mp match
     case ModifiablePrimaryNode(id, _, arrayAccesses) =>
-      state.table.lookupVariable(id).flatMap(_.varType) match
+      state.table.lookupVariable(id) match
 
-        case Some(varType) =>
-          arrayAccesses.foldLeft((state, Some(varType): Option[Type])) { case ((st, ct), access) =>
-            ct match
-              case Some(TypeAlias(identifier)) => state.table.lookupType(identifier) match {
-                case Some(TypeInfo(_, ArrayType(sizeOpt, elemT))) =>  // Fixed pattern match
-                  // Out-of-bounds check for type aliases
+        case None =>
+          (state.addError(SemanticError(s"Undeclared variable: '$id'")), None)
+        case Some(varInfo) => varInfo.varType match
+          case Some(varType) =>
+            arrayAccesses.foldLeft((state, Some(varType): Option[Type])) { case ((st, ct), access) =>
+              ct match
+                case Some(TypeAlias(identifier)) => state.table.lookupType(identifier) match {
+                  case Some(TypeInfo(_, ArrayType(sizeOpt, elemT))) =>  // Fixed pattern match
+                    // Out-of-bounds check for type aliases
+                    (evaluateConstant(access.index, st.table), sizeOpt.flatMap(evaluateConstant(_, st.table))) match {
+                      case (Some(idx), Some(size)) if idx < 0 || idx >= size =>
+                        (st.addError(SemanticError(s"Array index out of bounds: $idx for array of size $size")), Some(elemT))
+                      case _ => (st, Some(elemT))
+                    }
+                  case Some(TypeInfo(_, _)) => (st.addError(SemanticError("Cannot index non-array type")), None)
+                  case None => (st.addError(SemanticError(s"Undeclared type: $identifier")), None)
+                }
+                case Some(ArrayType(sizeOpt, elemT)) =>
+                  // Out-of-bounds check for constant indices
                   (evaluateConstant(access.index, st.table), sizeOpt.flatMap(evaluateConstant(_, st.table))) match {
                     case (Some(idx), Some(size)) if idx < 0 || idx >= size =>
                       (st.addError(SemanticError(s"Array index out of bounds: $idx for array of size $size")), Some(elemT))
                     case _ => (st, Some(elemT))
                   }
-                case Some(TypeInfo(_, _)) => (st.addError(SemanticError("Cannot index non-array type")), None)
-                case None => (st.addError(SemanticError(s"Undeclared type: $identifier")), None)
-              }
-              case Some(ArrayType(sizeOpt, elemT)) =>
-                // Out-of-bounds check for constant indices
-                (evaluateConstant(access.index, st.table), sizeOpt.flatMap(evaluateConstant(_, st.table))) match {
-                  case (Some(idx), Some(size)) if idx < 0 || idx >= size =>
-                    (st.addError(SemanticError(s"Array index out of bounds: $idx for array of size $size")), Some(elemT))
-                  case _ => (st, Some(elemT))
-                }
-//                (st, elemT.some)
-//              case Some(TypeAlias(identifier)) => state.table.lookupType(identifier) match {
-//                case Some(_, ArrayType(_, elemT)) => (st, elemT.some)
-//                case Some(_, _) => (st.addError(SemanticError("Cannot index non-array type")), None)
-//                case None => (st.addError(SemanticError(s"Undeclared type: $identifier")), None)
-//              }
-              case Some(_)                  => (st.addError(SemanticError("Cannot index non-array type")), None)
-              case None                     => (st, None)
-          }
-        case None => (state.addError(SemanticError(s"Undeclared variable: '$id'")), None)
+  //                (st, elemT.some)
+  //              case Some(TypeAlias(identifier)) => state.table.lookupType(identifier) match {
+  //                case Some(_, ArrayType(_, elemT)) => (st, elemT.some)
+  //                case Some(_, _) => (st.addError(SemanticError("Cannot index non-array type")), None)
+  //                case None => (st.addError(SemanticError(s"Undeclared type: $identifier")), None)
+  //              }
+                case Some(_)                  => (st.addError(SemanticError("Cannot index non-array type")), None)
+                case None                     => (st, None)
+            }
+          case None => (state.addError(SemanticError(s"Undeclared variable: '$id'")), None)
 
   private def inferRoutineBodyType(body: RoutineBody, state: SemState, context: SemanticContext): (SemState, Option[Type]) = body match
     case JustRoutineBody(_)      => (state, None)

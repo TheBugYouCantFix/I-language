@@ -360,7 +360,7 @@ object SyntaxAnalyzer:
                 parseSimpleDeclaration(state) orElse parseStatement(state) match
                     case Left(_) =>
                         if simpleDecls == Nil && statements == Nil then Left(())
-                        else Right((state, Body(simpleDecls, statements)))
+                        else Right((state, Body(simpleDecls.reverse, statements.reverse)))
                     case Right((nextState, s: Statement)) => loop(nextState, simpleDecls, s :: statements)
                     case Right((nextState, s: SimpleDeclaration)) => loop(nextState, s :: simpleDecls, statements)
             

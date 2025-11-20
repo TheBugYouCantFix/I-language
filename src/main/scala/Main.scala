@@ -1,205 +1,74 @@
 import lexer.*
 import parser.*
 import semantic.*
+import codegen.*
 
 object Main:
   def main(args: Array[String]): Unit =
-//    lexerShowcase(
+    println("=".repeat(60))
+//    llvmShowcase(
 //      """
-//        |var a : integer is 10
-//        |var b is 20
-//        |var flag : boolean is true
-//        |var pi is 3.1415
-//        |
-//        |print a, b, flag, pi
-//        """.stripMargin
-//    )
-//
-//    parserShowcase(
-//      """
-//        |var n is 2 + 2 * 2
-//        |""".stripMargin
-//    )
-    
-//    println("=".repeat(60))
-//    println("Example 1: Successful Analysis - Type inference and declarations")
-//    println("=".repeat(60))
-//    semanticShowcase(
-//      """
-//        |var a : integer is 10
+//        |type Aboba is integer
+//        |var a : Aboba is 10
 //        |var b is 20
 //        |var sum is a + b
+//        |print sum
 //        |""".stripMargin
 //    )
 
 //    println("\n" + "=" * 60)
-//    println("Example 2: Type Mismatch Error")
-//    println("=".repeat(60))
-//    semanticShowcase(
-//      """
-//        |var a : integer is 10
-//        |var b : boolean is true
-//        |var c is a + b
-//        |""".stripMargin
-//    )
-
-//    println("\n" + "=" * 60)
-//    println("Example 3: Undeclared Variable Error")
-//    println("=".repeat(60))
-//    semanticShowcase(
-//      """
-//        |var a is 10
-//        |var b is unknownVar + 5
-//        |""".stripMargin
-//    )
-////
-//    println("\n" + "=" * 60)
-//    println("Example 4: Array Type and Bounds")
-//    println("=".repeat(60))
-//    semanticShowcase(
+//    llvmShowcase(
 //      """
 //        |type IntArray is array [3] integer
 //        |var numbers : IntArray
 //        |numbers[0] := 10
-//        |numbers[4] := 20
+//        |print numbers[0]
+//        |print numbers[1]
 //        |""".stripMargin
 //    )
-
+//
 //    println("\n" + "=" * 60)
-//    println("Example 5: Routine Declaration and Call")
-//    println("=".repeat(60))
-//    semanticShowcase(
+//    llvmShowcase(
 //      """
 //        |routine add(x : integer, y : integer) : integer is
 //        |    x + y
 //        |end
 //        |
 //        |var result is add(5, 3)
+//        |print result
 //        |""".stripMargin
 //    )
 //
 //    println("\n" + "=" * 60)
-//    println("Example 6: Routine Call Errors")
-//    println("=".repeat(60))
-//    semanticShowcase(
+//    llvmShowcase(
 //      """
-//        |routine add(x : integer, y : integer) : integer is
-//        |    x + y
+//        |var flag : boolean is true
+//        |var count : integer is 0
+//        |
+//        |if flag then
+//        |    count := count + 1
 //        |end
-//        |
-//        |var result1 is add(5)
-//        |var result2 is add(5, 3, 2)
-//        |var result3 is add(5, true)
-//        |""".stripMargin
-//    )
-//
-//    println("\n" + "=" * 60)
-//    println("Example 7: Undeclared Routine")
-//    println("=".repeat(60))
-//    semanticShowcase(
-//      """
-//        |var result is unknownFunction(5)
-//        |""".stripMargin
-//    )
-//
-    println("\n" + "=" * 60)
-    println("Example 8: Control Flow - If/While with Boolean Conditions")
-    println("=".repeat(60))
-    semanticShowcase(
-      """
-        |var flag : boolean is true
-        |var count : integer is 0
-        |
-        |if flag then
-        |    count := count + 1
-        |end
-        |
-        |while count < 5 loop
-        |    count := count + 1
-        |end
-        |""".stripMargin
-    )
-
-    println("\n" + "=" * 60)
-    println("Example 9: Control Flow Type Errors")
-    println("=".repeat(60))
-    semanticShowcase(
-      """
-        |var num : integer is 5
-        |
-        |if num then
-        |    num := 10
-        |end
-        |
-        |while num loop
-        |    num := num - 1
-        |end
-        |""".stripMargin
-    )
-
-    println("\n" + "=" * 60)
-    println("Example 10: Duplicate Declarations")
-    println("=".repeat(60))
-    semanticShowcase(
-      """
-        |var x : integer is 10
-        |var x : integer is 20
-        |var y is 5
-        |var y is 6
-        |""".stripMargin
-    )
-
-    semanticShowcase(
-      """
-        |var a : integer is 10
-        |var b : boolean is true
-        |var c is a + b
-        |""".stripMargin
-    )
-
-    semanticShowcase(
-      """
-        |type IntArray is array [5] integer
-        |var numbers : IntArray
-        |numbers[1] := 10
-        |numbers[10] := 20
-        |""".stripMargin
-    )
-
-    semanticShowcase(
-      """
-        |routine add(x : integer, y : integer) : integer is
-        |    x + y
-        |end
-        |
-        |var result is add(5, 3)
-        |""".stripMargin
-    )
-
-
-    semanticShowcase(
-      """
-        |var a is 1
-        |print a
-        |""".stripMargin
-    )
-//
-//    parserShowcase(
-//      """
-//        |type IntArray is array [5] integer
-//        |
-//        |var numbers : IntArray
-//        |numbers[1] := 10
-//        |numbers[2] := 20
-//        |numbers[3] := 30
-//        |numbers[4] := 40
-//        |numbers[5] := 50
-//        |
-//        |for i in 1 .. 5 loop
-//        |    print numbers[i]
+//        |print count
+//        |while count < 5 loop
+//        |    count := count + 1
+//        |    print count
 //        |end
 //        |""".stripMargin
 //    )
+      llvmShowcase(
+        """
+          |type Person is record
+          | var name : integer
+          | var age : integer
+          |end
+          |
+          |var p1 : Person
+          |p1.name := 12
+          |p1.age := 30
+          |
+          |print p1.name, p1.age
+          |""".stripMargin
+      )
 
   private def parserShowcase(source: String): Unit =
     Lexer.tokenize(source) match
@@ -221,9 +90,9 @@ object Main:
         println(parser.ASTPrinter.format(program))
         println(s"\nDeclarations count: ${program.declarations.length}")
         program.declarations.foreach {
-          case d: parser.structures.StatementDeclaration => 
+          case d: parser.structures.StatementDeclaration =>
             println(s"  StatementDeclaration with ${d.statements.length} statements")
-          case d => 
+          case d =>
             println(s"  ${d.getClass.getSimpleName}")
         }
         println("\n=== Semantic Analysis ===")
@@ -246,3 +115,34 @@ object Main:
               println(s"Optimized declarations: ${optimized.declarations.length}")
           case None =>
             println("(No optimized program available)")
+
+  private def llvmShowcase(source: String): Unit =
+    println() // Add spacing
+    Lexer.tokenize(source) match
+      case Left(er) => println(s"Lexer error: $er")
+      case Right(tokens) =>
+        println("=== Parsing ===")
+        val program = SyntaxAnalyzer.analyze(tokens)
+        println("\nAST:")
+        println(parser.ASTPrinter.format(program))
+        println("Program parsed successfully")
+
+        println("\n=== Semantic Analysis ===")
+        val semResult = SemanticAnalyzer.analyze(program)
+        if semResult.errors.nonEmpty then
+          println(s"Found ${semResult.errors.length} error(s):")
+          semResult.errors.zipWithIndex.foreach { case (error, idx) =>
+            println(s"  [${idx + 1}] ${error.getMessage}")
+          }
+          println("\nCannot generate LLVM code due to semantic errors.")
+        else
+          println("No semantic errors found!")
+
+          println("\n=== LLVM IR Code Generation ===")
+          val llvmIR = LLVMCodeGenerator.generate(program)
+          println(llvmIR)
+
+          println("\n=== Save to file ===")
+          val outputFile = java.io.File("output.ll")
+          java.nio.file.Files.write(java.nio.file.Paths.get("output.ll"), llvmIR.getBytes)
+          println(s"LLVM IR written to: ${outputFile.getAbsolutePath}")
