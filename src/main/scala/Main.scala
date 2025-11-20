@@ -6,55 +6,55 @@ import codegen.*
 object Main:
   def main(args: Array[String]): Unit =
     println("=".repeat(60))
-//    llvmShowcase(
-//      """
-//        |type Aboba is integer
-//        |var a : Aboba is 10
-//        |var b is 20
-//        |var sum is a + b
-//        |print sum
-//        |""".stripMargin
-//    )
+    llvmShowcase(
+      """
+        |type Aboba is integer
+        |var a : Aboba is 10
+        |var b is 20
+        |var sum is a + b
+        |print sum
+        |""".stripMargin
+    )
 
-//    println("\n" + "=" * 60)
-//    llvmShowcase(
-//      """
-//        |type IntArray is array [3] integer
-//        |var numbers : IntArray
-//        |numbers[0] := 10
-//        |print numbers[0]
-//        |print numbers[1]
-//        |""".stripMargin
-//    )
-//
-//    println("\n" + "=" * 60)
-//    llvmShowcase(
-//      """
-//        |routine add(x : integer, y : integer) : integer is
-//        |    x + y
-//        |end
-//        |
-//        |var result is add(5, 3)
-//        |print result
-//        |""".stripMargin
-//    )
-//
-//    println("\n" + "=" * 60)
-//    llvmShowcase(
-//      """
-//        |var flag : boolean is true
-//        |var count : integer is 0
-//        |
-//        |if flag then
-//        |    count := count + 1
-//        |end
-//        |print count
-//        |while count < 5 loop
-//        |    count := count + 1
-//        |    print count
-//        |end
-//        |""".stripMargin
-//    )
+    println("\n" + "=" * 60)
+    llvmShowcase(
+      """
+        |type IntArray is array [3] integer
+        |var numbers : IntArray
+        |numbers[0] := 10
+        |print numbers[0]
+        |print numbers[1]
+        |""".stripMargin
+    )
+
+    println("\n" + "=" * 60)
+    llvmShowcase(
+      """
+        |routine add(x : integer, y : integer) : integer is
+        |    x + y
+        |end
+        |
+        |var result is add(5, 3)
+        |print result
+        |""".stripMargin
+    )
+
+    println("\n" + "=" * 60)
+    llvmShowcase(
+      """
+        |var flag : boolean is true
+        |var count : integer is 0
+        |
+        |if flag then
+        |    count := count + 1
+        |end
+        |print count
+        |while count < 5 loop
+        |    count := count + 1
+        |    print count
+        |end
+        |""".stripMargin
+    )
       llvmShowcase(
         """
           |type Person is record

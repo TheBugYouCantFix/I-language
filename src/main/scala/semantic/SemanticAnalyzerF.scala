@@ -3,6 +3,7 @@ package semantic
 import parser.structures.*
 import cats.syntax.all.*
 import cats.data.State
+import scala.annotation.tailrec
 
 class SemanticError(message: String) extends RuntimeException(message)
 
@@ -268,8 +269,12 @@ object SemanticAnalyzer {
         checkArrayBounds(access.index, st3)
       }
 
+  @tailrec
   private def resolveTypeAlias(t: Type, table: SymbolTable): Type = t match {
-    case TypeAlias(name) => table.lookupType(name).map(_.typeDefinition).getOrElse(t)
+    case TypeAlias(name) =>
+      table.lookupType(name).map(_.typeDefinition) match
+        case Some(resolved) => resolveTypeAlias(resolved, table)
+        case None           => t
     case _ => t
   }
 
@@ -313,41 +318,47 @@ object SemanticAnalyzer {
       else (st1, pt)
 
   private def inferModPrimaryType(mp: ModifiablePrimary, state: SemState, context: SemanticContext): (SemState, Option[Type]) = mp match
-    case ModifiablePrimaryNode(id, _, arrayAccesses) =>
+    case ModifiablePrimaryNode(id, memberAccesses, arrayAccesses) =>
       state.table.lookupVariable(id) match
 
         case None =>
           (state.addError(SemanticError(s"Undeclared variable: '$id'")), None)
         case Some(varInfo) => varInfo.varType match
           case Some(varType) =>
-            arrayAccesses.foldLeft((state, Some(varType): Option[Type])) { case ((st, ct), access) =>
+            val (stMembers, memberTypeOpt) =
+              memberAccesses.foldLeft((state, Some(varType): Option[Type])) { case ((st, currentTypeOpt), member) =>
+                currentTypeOpt match
+                  case Some(currentType) =>
+                    resolveTypeAlias(currentType, st.table) match
+                      case record: RecordType =>
+                        record.fields.find(_.identifier == member.identifier) match
+                          case Some(fieldDecl) =>
+                            val fieldType = fieldDecl.typeAnnotation.getOrElse(IntegerType)
+                            (st, Some(fieldType))
+                          case None =>
+                            (st.addError(SemanticError(s"Type '${typeToString(currentType)}' has no member '${member.identifier}'")), None)
+                      case TypeAlias(name) =>
+                        (st.addError(SemanticError(s"Undeclared type: '$name'")), None)
+                      case _ =>
+                        (st.addError(SemanticError(s"Type '${typeToString(currentType)}' has no member '${member.identifier}'")), None)
+                  case None => (st, None)
+              }
+
+            arrayAccesses.foldLeft((stMembers, memberTypeOpt)) { case ((st, ct), access) =>
               ct match
-                case Some(TypeAlias(identifier)) => state.table.lookupType(identifier) match {
-                  case Some(TypeInfo(_, ArrayType(sizeOpt, elemT))) =>  // Fixed pattern match
-                    // Out-of-bounds check for type aliases
-                    (evaluateConstant(access.index, st.table), sizeOpt.flatMap(evaluateConstant(_, st.table))) match {
-                      case (Some(idx), Some(size)) if idx < 0 || idx >= size =>
-                        (st.addError(SemanticError(s"Array index out of bounds: $idx for array of size $size")), Some(elemT))
-                      case _ => (st, Some(elemT))
-                    }
-                  case Some(TypeInfo(_, _)) => (st.addError(SemanticError("Cannot index non-array type")), None)
-                  case None => (st.addError(SemanticError(s"Undeclared type: $identifier")), None)
-                }
-                case Some(ArrayType(sizeOpt, elemT)) =>
-                  // Out-of-bounds check for constant indices
-                  (evaluateConstant(access.index, st.table), sizeOpt.flatMap(evaluateConstant(_, st.table))) match {
-                    case (Some(idx), Some(size)) if idx < 0 || idx >= size =>
-                      (st.addError(SemanticError(s"Array index out of bounds: $idx for array of size $size")), Some(elemT))
-                    case _ => (st, Some(elemT))
-                  }
-  //                (st, elemT.some)
-  //              case Some(TypeAlias(identifier)) => state.table.lookupType(identifier) match {
-  //                case Some(_, ArrayType(_, elemT)) => (st, elemT.some)
-  //                case Some(_, _) => (st.addError(SemanticError("Cannot index non-array type")), None)
-  //                case None => (st.addError(SemanticError(s"Undeclared type: $identifier")), None)
-  //              }
-                case Some(_)                  => (st.addError(SemanticError("Cannot index non-array type")), None)
-                case None                     => (st, None)
+                case Some(currentType) =>
+                  resolveTypeAlias(currentType, st.table) match
+                    case ArrayType(sizeOpt, elemT) =>
+                      (evaluateConstant(access.index, st.table), sizeOpt.flatMap(evaluateConstant(_, st.table))) match {
+                        case (Some(idx), Some(size)) if idx < 0 || idx >= size =>
+                          (st.addError(SemanticError(s"Array index out of bounds: $idx for array of size $size")), Some(elemT))
+                        case _ => (st, Some(elemT))
+                      }
+                    case TypeAlias(name) =>
+                      (st.addError(SemanticError(s"Undeclared type: '$name'")), None)
+                    case _ =>
+                      (st.addError(SemanticError("Cannot index non-array type")), None)
+                case None => (st, None)
             }
           case None => (state.addError(SemanticError(s"Undeclared variable: '$id'")), None)
 
