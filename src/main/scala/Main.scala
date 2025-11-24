@@ -4,6 +4,7 @@ import semantic.*
 import codegen.*
 
 object Main:
+  var c = 0
   def main(args: Array[String]): Unit =
     println("=".repeat(60))
     llvmShowcase(
@@ -35,6 +36,20 @@ object Main:
         |end
         |
         |var result is add(5, 3)
+        |print result
+        |""".stripMargin
+    )
+
+    println("\n" + "=" * 60)
+    llvmShowcase(
+      """
+        |routine multiply(x : integer, y : integer) : integer is
+        |    var temp is x
+        |    temp := temp * y
+        |    temp
+        |end
+        |
+        |var result is multiply(4, 3)
         |print result
         |""".stripMargin
     )
@@ -123,6 +138,8 @@ object Main:
 
   private def llvmShowcase(source: String): Unit =
     println() // Add spacing
+    println(c)
+    c = c + 1
     Lexer.tokenize(source) match
       case Left(er) => println(s"Lexer error: $er")
       case Right(tokens) =>

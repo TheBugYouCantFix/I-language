@@ -198,11 +198,29 @@ object LLVMCodeGenerator {
               (st3, code)
             case _ => (st, acc)
         }
-        val (st2, stmtCode) = b.statements.foldLeft((st1, "")) { case ((st, acc), stmt) =>
+        // Check if the last statement is a return expression (PrintStatement with single expr)
+        val (statementsToProcess, hasReturnExpr) = b.statements.lastOption match
+          case Some(PrintStatement(List(expr))) =>
+            // This is a return expression, not a print
+            (b.statements.init, Some(expr))
+          case _ => (b.statements, None)
+        
+        val (st2, stmtCode) = statementsToProcess.foldLeft((st1, "")) { case ((st, acc), stmt) =>
           val (st1, code) = generateStatement(stmt, st)
           (st1, acc + code)
         }
-        (st2, declCode + stmtCode, stmtCode.contains("ret "))
+        
+        val (st3, finalCode, hasRet) = hasReturnExpr match
+          case Some(expr) =>
+            // Generate return from expression
+            val (stExpr, exprCode, exprReg, exprType) = generateExpression(expr, st2)
+            val retType = header.returnType.map(typeToLLVMType(_, stExpr)).getOrElse("i32")
+            val retCode = s"  ret $retType $exprReg\n"
+            (stExpr, stmtCode + exprCode + retCode, true)
+          case None =>
+            (st2, stmtCode, stmtCode.contains("ret "))
+        
+        (st3, declCode + finalCode, hasRet)
       
       case RoutineBodyExpression(expr) =>
         val (st1, code, valueReg, valueType) = generateExpression(expr, state2)

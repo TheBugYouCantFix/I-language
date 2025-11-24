@@ -314,10 +314,40 @@ object SyntaxAnalyzer:
             state.advanceN() match
                 case (Token(TokenType.Is, _, _) :: Nil, nextState) =>
                     // After 'is' accept either a block body or a single expression followed by 'end'
-                    parseBody(nextState) match
-                        case Right((sBody, body)) =>
-                            discardSpecific(sBody)(_.tkType == TokenType.End).map { sEnd => (sEnd, JustRoutineBody(body)) }
+                    // First try to parse declarations and statements
+                    def parseBodyWithOptionalExpr(state: ParserState, decls: List[SimpleDeclaration], stmts: List[Statement]): ParseResult[RoutineBody] =
+                        // Check for 'end' first
+                        peekAndCheck(state)(_.tkType == TokenType.End) match
+                            case Right(true) =>
+                                // End of body, return what we have
+                                if decls == Nil && stmts == Nil then Left(())
+                                else
+                                    discardSpecific(state)(_.tkType == TokenType.End).map { sEnd =>
+                                        (sEnd, JustRoutineBody(Body(decls.reverse, stmts.reverse)))
+                                    }
+                            case _ =>
+                                // Try to parse a declaration, statement, or expression
+                                parseSimpleDeclaration(state) orElse parseStatement(state) orElse parseExpression(state) match
+                                    case Right((nextState, decl: SimpleDeclaration)) =>
+                                        parseBodyWithOptionalExpr(nextState, decl :: decls, stmts)
+                                    case Right((nextState, stmt: Statement)) =>
+                                        parseBodyWithOptionalExpr(nextState, decls, stmt :: stmts)
+                                    case Right((nextState, expr: Expression)) =>
+                                        // Found an expression - this is the return value, next should be 'end'
+                                        discardSpecific(nextState)(_.tkType == TokenType.End).map { sEnd =>
+                                            // Store expression as a special "return" statement
+                                            // We'll use a PrintStatement as a placeholder (semantic analyzer will handle it)
+                                            val body = Body(decls.reverse, stmts.reverse :+ PrintStatement(List(expr)))
+                                            (sEnd, JustRoutineBody(body))
+                                        }
+                                    case Left(_) =>
+                                        if decls == Nil && stmts == Nil then Left(())
+                                        else Right((state, JustRoutineBody(Body(decls.reverse, stmts.reverse))))
+                    
+                    parseBodyWithOptionalExpr(nextState, Nil, Nil) match
+                        case Right((sEnd, body)) => Right((sEnd, body))
                         case Left(_) =>
+                            // No body found, try single expression
                             for
                                 (sExpr, e) <- parseExpression(nextState)
                                 sEnd       <- discardSpecific(sExpr)(_.tkType == TokenType.End)
@@ -357,12 +387,18 @@ object SyntaxAnalyzer:
 
         def parseBody(state: ParserState): ParseResult[Body] = 
             def loop(state: ParserState, simpleDecls: List[SimpleDeclaration], statements: List[Statement]): ParseResult[Body] =
-                parseSimpleDeclaration(state) orElse parseStatement(state) match
-                    case Left(_) =>
+                // Check for terminating tokens before trying to parse
+                state.peek match
+                    case Some(Token(TokenType.End, _, _)) | Some(Token(TokenType.Else, _, _)) =>
                         if simpleDecls == Nil && statements == Nil then Left(())
                         else Right((state, Body(simpleDecls.reverse, statements.reverse)))
-                    case Right((nextState, s: Statement)) => loop(nextState, simpleDecls, s :: statements)
-                    case Right((nextState, s: SimpleDeclaration)) => loop(nextState, s :: simpleDecls, statements)
+                    case _ =>
+                        parseSimpleDeclaration(state) orElse parseStatement(state) match
+                            case Left(_) =>
+                                if simpleDecls == Nil && statements == Nil then Left(())
+                                else Right((state, Body(simpleDecls.reverse, statements.reverse)))
+                            case Right((nextState, s: Statement)) => loop(nextState, simpleDecls, s :: statements)
+                            case Right((nextState, s: SimpleDeclaration)) => loop(nextState, s :: simpleDecls, statements)
             
             loop(state, Nil, Nil)
                     

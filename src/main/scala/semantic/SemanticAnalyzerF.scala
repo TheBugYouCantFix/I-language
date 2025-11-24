@@ -98,20 +98,26 @@ object SemanticAnalyzer {
   private def checkDeclaration(decl: Declaration, state: SemState, context: SemanticContext): SemState = decl match
     case VariableDeclaration(name, tOpt, initOpt) =>
       val st1 = tOpt.fold(state)(t => checkType(t, state))
+      // For routine body declarations, variable might not be in table yet - add it if needed
+      val st1b = if !st1.table.variables.contains(name) then
+        st1.withTable(st1.table.addVariable(VariableInfo(name, tOpt, initOpt.isDefined, isUsed = false)))
+      else st1
       initOpt match
         case Some(init) =>
-          val (st2, initType) = inferType(init, st1, context)
+          val (st2, initType) = inferType(init, st1b, context)
           val st2b = if tOpt.isEmpty && initType.isDefined then
-            st2.withTable(st2.table.addVariable(
-              st2.table.lookupVariable(name).get.copy(varType = initType)
-            ))
+            st2.table.lookupVariable(name) match
+              case Some(varInfo) =>
+                st2.withTable(st2.table.addVariable(varInfo.copy(varType = initType)))
+              case None =>
+                st2.withTable(st2.table.addVariable(VariableInfo(name, initType, isInitialized = true, isUsed = false)))
           else st2
           val st3 = tOpt.fold(st2b) { declared =>
             if !areTypesCompatible(declared, initType, st2b.table) then st2b.addError(SemanticError(s"Type mismatch: variable '$name' declared as ${typeToString(declared)} but initialized with ${typeToStringOpt(initType)}"))
             else st2b
           }
           checkExpression(init, st3, context, markUsage = true)
-        case None => st1
+        case None => st1b
 
     case TypeDeclaration(name, typeDef) =>
       val st1 = checkType(typeDef, state)
@@ -363,7 +369,13 @@ object SemanticAnalyzer {
           case None => (state.addError(SemanticError(s"Undeclared variable: '$id'")), None)
 
   private def inferRoutineBodyType(body: RoutineBody, state: SemState, context: SemanticContext): (SemState, Option[Type]) = body match
-    case JustRoutineBody(_)      => (state, None)
+    case JustRoutineBody(b) =>
+      // Check if the last statement is a PrintStatement with a single expression (our marker for return value)
+      b.statements.lastOption match
+        case Some(PrintStatement(List(expr))) =>
+          // This is a return expression, extract its type
+          inferType(expr, state, context)
+        case _ => (state, None)
     case RoutineBodyExpression(e) => inferType(e, state, context)
 
   private def areTypesCompatible(expected: Type, actual: Option[Type], symbolTable: SymbolTable): Boolean = actual match
