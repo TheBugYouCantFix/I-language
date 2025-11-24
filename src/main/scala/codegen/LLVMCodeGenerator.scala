@@ -105,7 +105,10 @@ object LLVMCodeGenerator {
     val (finalState, code) = program.declarations.foldLeft((state, "")) { case ((st, acc), decl) =>
       decl match
         case VariableDeclaration(name, typeOpt, initOpt) =>
-          val declaredType = typeOpt.getOrElse(IntegerType)
+          // Infer type from initializer if type is not provided
+          val declaredType = typeOpt.getOrElse {
+            initOpt.flatMap(inferExpressionType(_, st)).getOrElse(IntegerType)
+          }
           val allocaType = typeToLLVMAllocaType(declaredType, st)
           val valueType = typeToLLVMType(declaredType, st)
           // First allocate the register for alloca
@@ -721,6 +724,34 @@ object LLVMCodeGenerator {
   private def extractPrimaryLiteral(primary: Primary): Option[Int] = primary match
     case parser.structures.IntegerLiteral(value) => Some(value)
     case parser.structures.ParenthesizedExpression(inner) => extractIntLiteral(inner)
+    case _ => None
+
+  // Infer the Type (AST type) from an expression
+  private def inferExpressionType(expr: Expression, state: CodeGenState): Option[Type] = expr match
+    case IntegerLiteral(_) => Some(IntegerType)
+    case RealLiteral(_) => Some(RealType)
+    case BooleanLiteral(_) => Some(BooleanType)
+    case ModifiablePrimaryExpression(mp) =>
+      mp match
+        case ModifiablePrimaryNode(id, _, _) =>
+          state.variableTypeDefs.get(id).orElse(
+            state.variableTypes.get(id).flatMap { llvmType =>
+              // Try to reverse-engineer type from LLVM type (not perfect, but better than nothing)
+              llvmType match
+                case "i32" => Some(IntegerType)
+                case "double" => Some(RealType)
+                case "i1" => Some(BooleanType)
+                case _ => None
+            }
+          )
+    case RoutineCallExpression(id, _) =>
+      state.functions.get(id).flatMap(_.returnType)
+    case ParenthesizedExpression(e) => inferExpressionType(e, state)
+    case Relation(left, Nil) => inferExpressionType(left, state)
+    case Relation(_, _) => Some(BooleanType)
+    case Simple(left, _) => inferExpressionType(left, state)
+    case Factor(left, _) => inferExpressionType(left, state)
+    case Summand(primary, _, _) => inferExpressionType(primary, state)
     case _ => None
 }
 
