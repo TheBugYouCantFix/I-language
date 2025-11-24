@@ -188,6 +188,19 @@ object SemanticAnalyzer {
     case PrintStatement(values) =>
       values.foldLeft(state) { (st, e) => checkExpression(e, st, context, markUsage = true) }
 
+    case ReturnStatement(value) =>
+      val (st1, valueType) = inferType(value, state, context)
+      if context.isInunction then
+        context.currentFunctionReturnType match
+          case Some(expectedType) =>
+            if !areTypesCompatible(expectedType, valueType, st1.table) then
+              st1.addError(SemanticError(s"Return type mismatch: expected ${typeToString(expectedType)} but got ${typeToStringOpt(valueType)}"))
+            else st1
+          case None =>
+            st1.addError(SemanticError("Cannot return a value from a routine without return type"))
+      else
+        st1.addError(SemanticError("Return statement can only be used inside a routine"))
+
   private def checkBody(body: Body, state: SemState, context: SemanticContext): SemState = {
     val stDecls = body.declarations.foldLeft(state) { (st, d) => checkDeclaration(d, st, context) }
     body.statements.foldLeft(stDecls) { (st, s) => checkStatement(s, st, context) }
@@ -370,10 +383,10 @@ object SemanticAnalyzer {
 
   private def inferRoutineBodyType(body: RoutineBody, state: SemState, context: SemanticContext): (SemState, Option[Type]) = body match
     case JustRoutineBody(b) =>
-      // Check if the last statement is a PrintStatement with a single expression (our marker for return value)
+      // Check if the last statement is a ReturnStatement
       b.statements.lastOption match
-        case Some(PrintStatement(List(expr))) =>
-          // This is a return expression, extract its type
+        case Some(ReturnStatement(expr)) =>
+          // Extract return type from the return statement
           inferType(expr, state, context)
         case _ => (state, None)
     case RoutineBodyExpression(e) => inferType(e, state, context)
@@ -537,6 +550,7 @@ object SemanticAnalyzer {
     case ForLoop(v, r, rev, b) => ForLoop(v, Range(optimizeExpression(r.start, table), r.end.map(optimizeExpression(_, table))), rev, optimizeBody(b, table))
     case IfStatement(c, tb, eb) => IfStatement(optimizeExpression(c, table), optimizeBody(tb, table), eb.map(optimizeBody(_, table)))
     case PrintStatement(values) => PrintStatement(values.map(optimizeExpression(_, table)))
+    case ReturnStatement(value) => ReturnStatement(optimizeExpression(value, table))
 
   private def optimizeRoutineBody(body: RoutineBody, table: SymbolTable): RoutineBody = body match
     case JustRoutineBody(b)       => JustRoutineBody(optimizeBody(b, table))

@@ -335,9 +335,8 @@ object SyntaxAnalyzer:
                                     case Right((nextState, expr: Expression)) =>
                                         // Found an expression - this is the return value, next should be 'end'
                                         discardSpecific(nextState)(_.tkType == TokenType.End).map { sEnd =>
-                                            // Store expression as a special "return" statement
-                                            // We'll use a PrintStatement as a placeholder (semantic analyzer will handle it)
-                                            val body = Body(decls.reverse, stmts.reverse :+ PrintStatement(List(expr)))
+                                            // Store expression as a Return statement
+                                            val body = Body(decls.reverse, stmts.reverse :+ ReturnStatement(expr))
                                             (sEnd, JustRoutineBody(body))
                                         }
                                     case Left(_) =>

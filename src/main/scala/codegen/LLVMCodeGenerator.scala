@@ -198,10 +198,10 @@ object LLVMCodeGenerator {
               (st3, code)
             case _ => (st, acc)
         }
-        // Check if the last statement is a return expression (PrintStatement with single expr)
-        val (statementsToProcess, hasReturnExpr) = b.statements.lastOption match
-          case Some(PrintStatement(List(expr))) =>
-            // This is a return expression, not a print
+        // Check if the last statement is a ReturnStatement
+        val (statementsToProcess, returnStmt) = b.statements.lastOption match
+          case Some(ReturnStatement(expr)) =>
+            // This is a return statement
             (b.statements.init, Some(expr))
           case _ => (b.statements, None)
         
@@ -210,7 +210,7 @@ object LLVMCodeGenerator {
           (st1, acc + code)
         }
         
-        val (st3, finalCode, hasRet) = hasReturnExpr match
+        val (st3, finalCode, hasRet) = returnStmt match
           case Some(expr) =>
             // Generate return from expression
             val (stExpr, exprCode, exprReg, exprType) = generateExpression(expr, st2)
@@ -359,6 +359,13 @@ object LLVMCodeGenerator {
         (st3, acc + printCode)
       }
       (finalState, code)
+    
+    case ReturnStatement(value) =>
+      // ReturnStatement should only appear in routine bodies and is handled specially there
+      // If it appears here, it's an error, but we'll generate code anyway
+      val (st1, exprCode, exprReg, exprType) = generateExpression(value, state)
+      val retCode = s"  ret $exprType $exprReg\n"
+      (st1, exprCode + retCode)
 
   private def generateBody(body: Body, state: CodeGenState): (CodeGenState, String) = {
     val (st1, declCode) = body.declarations.foldLeft((state, "")) { case ((st, acc), decl) =>

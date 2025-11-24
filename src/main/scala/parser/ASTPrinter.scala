@@ -92,6 +92,10 @@ object ASTPrinter:
     case PrintStatement(values) =>
       nl(sb, indent, "Print")
       values.foreach(v => appendExpression(sb, v, indent + "  "))
+    
+    case ReturnStatement(value) =>
+      nl(sb, indent, "Return")
+      appendExpression(sb, value, indent + "  ")
 
   private def appendRange(sb: StringBuilder, r: Range, indent: String): Unit =
     nl(sb, indent, "Range")

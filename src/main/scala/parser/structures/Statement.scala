@@ -32,6 +32,10 @@ case class PrintStatement(
   values: List[Expression]
 ) extends Statement
 
+case class ReturnStatement(
+  value: Expression
+) extends Statement
+
 case class Range(
   start: Expression,
   end: Option[Expression]
