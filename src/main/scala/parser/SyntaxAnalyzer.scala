@@ -333,12 +333,17 @@ object SyntaxAnalyzer:
                                     case Right((nextState, stmt: Statement)) =>
                                         parseBodyWithOptionalExpr(nextState, decls, stmt :: stmts)
                                     case Right((nextState, expr: Expression)) =>
-                                        // Found an expression - this is the return value, next should be 'end'
-                                        discardSpecific(nextState)(_.tkType == TokenType.End).map { sEnd =>
-                                            // Store expression as a Return statement
-                                            val body = Body(decls.reverse, stmts.reverse :+ ReturnStatement(expr))
-                                            (sEnd, JustRoutineBody(body))
-                                        }
+                                        // Found an expression - check if next is 'end' (return value) or more code
+                                        peekAndCheck(nextState)(_.tkType == TokenType.End) match
+                                            case Right(true) =>
+                                                // This expression is the return value
+                                                discardSpecific(nextState)(_.tkType == TokenType.End).map { sEnd =>
+                                                    val body = Body(decls.reverse, stmts.reverse :+ ReturnStatement(expr))
+                                                    (sEnd, JustRoutineBody(body))
+                                                }
+                                            case _ =>
+                                                // More code follows, treat expression as a statement and continue
+                                                parseBodyWithOptionalExpr(nextState, decls, ReturnStatement(expr) :: stmts)
                                     case Left(_) =>
                                         if decls == Nil && stmts == Nil then Left(())
                                         else Right((state, JustRoutineBody(Body(decls.reverse, stmts.reverse))))

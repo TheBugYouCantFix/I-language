@@ -72,23 +72,23 @@ object Main:
     )
 
     println("\n" + "=" * 60)
-    llvmShowcase(
-        """
-          |type Person is record
-          | var name : integer
-          | var age : integer
-          |end
-          |
-          |var p1 : Person
-          |p1.name := 12
-          |p1.age := 30
-          |print p1.name, p1.age
-          |
-          |p1.age := p1.age + 5
-          |p1.name := p1.name + 7
-          |print p1.name, p1.age
-          |""".stripMargin
-      )
+    println("preson case")
+      llvmShowcase(
+    """
+      |type Person is record
+      | var name : integer
+      | var age : integer
+      |end
+      |routine foo(r: Person) : Person is
+      |  r.age := 10
+      |  r
+      |end
+      |var p1 : Person
+      |var res is foo(p1)
+      |print res.age
+      |""".stripMargin
+  )
+
 
   private def parserShowcase(source: String): Unit =
     Lexer.tokenize(source) match
