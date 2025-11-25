@@ -75,19 +75,25 @@ object Main:
     println("preson case")
       llvmShowcase(
     """
+      |type Bebra is record
+      |  var name : integer
+      |end
       |type Person is record
-      | var name : integer
+      | var x : Bebra
       | var age : integer
       |end
       |routine foo(r: Person) : Person is
       |  r.age := 10
+      |  r.x.name := 101
       |  r
       |end
       |var p1 : Person
       |var res is foo(p1)
-      |print res.age
+      |print res.x.name
       |""".stripMargin
   )
+
+    println("\n" + "=" * 60)
 
 
   private def parserShowcase(source: String): Unit =

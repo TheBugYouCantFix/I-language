@@ -354,12 +354,21 @@ object LLVMCodeGenerator {
     case PrintStatement(values) =>
       val (finalState, code) = values.foldLeft((state, "")) { case ((st, acc), expr) =>
         val (st1, exprCode, reg, regType) = generateExpression(expr, st)
-        val (st2, formatPtr) = st1.nextRegister()
-        val (st3, callReg) = st2.nextRegister()
-        val printCode = exprCode +
-          s"  $formatPtr = getelementptr inbounds [4 x i8], [4 x i8]* @.str.int, i32 0, i32 0\n" +
-          s"  $callReg = call i32 (i8*, ...) @printf(i8* $formatPtr, i32 $reg)\n"
-        (st3, acc + printCode)
+        val (st2, conversionCode, printableReg, printableType, formatSym, formatLen) = regType match
+          case "i32" =>
+            (st1, "", reg, "i32", "@.str.int", 4)
+          case "double" =>
+            (st1, "", reg, "double", "@.str.double", 5)
+          case "i1" =>
+            val (stConv, convReg) = st1.nextRegister()
+            (stConv, s"  $convReg = zext i1 $reg to i32\n", convReg, "i32", "@.str.bool", 4)
+          case other =>
+            throw new RuntimeException(s"Unsupported value type '$other' in print statement.")
+        val (st3, formatPtr) = st2.nextRegister()
+        val formatCode = s"  $formatPtr = getelementptr inbounds [$formatLen x i8], [$formatLen x i8]* $formatSym, i32 0, i32 0\n"
+        val (st4, callReg) = st3.nextRegister()
+        val callCode = s"  $callReg = call i32 (i8*, ...) @printf(i8* $formatPtr, $printableType $printableReg)\n"
+        (st4, acc + exprCode + conversionCode + formatCode + callCode)
       }
       (finalState, code)
     

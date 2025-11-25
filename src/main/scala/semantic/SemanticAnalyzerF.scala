@@ -186,7 +186,14 @@ object SemanticAnalyzer {
       elseB.fold(stThen) { eb => checkBody(eb, stThen, context) }
 
     case PrintStatement(values) =>
-      values.foldLeft(state) { (st, e) => checkExpression(e, st, context, markUsage = true) }
+      values.foldLeft(state) { (st, expr) =>
+        val st1 = checkExpression(expr, st, context, markUsage = true)
+        val (st2, exprType) = inferType(expr, st1, context)
+        exprType match
+          case Some(t) if isPrintableType(t, st2.table) => st2
+          case Some(t) => st2.addError(SemanticError(s"Cannot print value of type ${typeToString(resolveTypeAlias(t, st2.table))}. Only integer, real, or boolean types are supported."))
+          case None     => st2.addError(SemanticError("Unable to determine the type of expression in print statement."))
+      }
 
     case ReturnStatement(value) =>
       val (st1, valueType) = inferType(value, state, context)
@@ -573,6 +580,11 @@ object SemanticAnalyzer {
     case TypeAlias(n)  => n
 
   private def typeToStringOpt(t: Option[Type]): String = t.map(typeToString).getOrElse("unknown")
+
+  private def isPrintableType(t: Type, table: SymbolTable): Boolean =
+    resolveTypeAlias(t, table) match
+      case IntegerType | RealType | BooleanType => true
+      case _ => false
 
   private def binOpToString(op: BinaryOperator): String = op match
     case Plus => "+"
