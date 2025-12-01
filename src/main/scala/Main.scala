@@ -6,141 +6,46 @@ import codegen.*
 object Main:
   var c = 0
   def main(args: Array[String]): Unit =
-    println("=".repeat(60))
-    llvmShowcase(
-      """
-        |type Aboba is integer
-        |var a : Aboba is 10
-        |var b is 20
-        |var sum is a + b
-        |print sum
-        |""".stripMargin
-    )
 
-    println("\n" + "=" * 60)
-    llvmShowcase(
-      """
-        |type IntArray is array [3] integer
-        |var numbers : IntArray
-        |numbers[0] := 10
-        |print numbers[0]
-        |print numbers[1]
-        |""".stripMargin
-    )
+//    llvmShowcase(
+//      """
+//        |var a is 2 + 3
+//        |print a
+//        |""".stripMargin
+//    )
 
-    println("\n" + "=" * 60)
     llvmShowcase(
       """
-        |routine add(x : integer, y : integer) : integer is
-        |    x + y
+        |routine fac(n: integer): integer is
+        | if n = 0 or n = 1
+        | then n
+        | else n * fac(n - 1)
+        | end
         |end
         |
-        |var result is add(5, 3)
-        |print result
-        |""".stripMargin
-    )
+        |var res is fac(5)
+        |print res
+        |""".stripMargin)
+//      llvmShowcase(
+//        """
+//          |routine isEven(x: integer): boolean is
+//          | print x
+//          | x % 2 = 0
+//          |end
+//          |
+//          |var res is isEven(2)
+//          |print res
+//          |""".stripMargin)
+//    llvmShowcase(
+//      """
+//        |routine add(x: integer, y: integer): integer is
+//        | x + y
+//        |end
+//        |
+//        |var res is add(3, 2)
+//        |print res
+//        |""".stripMargin)
 
-    println("\n" + "=" * 60)
-    llvmShowcase(
-      """
-        |routine multiply(x : integer, y : integer) : integer is
-        |    var temp is x
-        |    temp := temp * y
-        |    temp
-        |end
-        |
-        |var result is multiply(4, 3)
-        |print result
-        |""".stripMargin
-    )
-
-    println("\n" + "=" * 60)
-    llvmShowcase(
-      """
-        |var flag : boolean is true
-        |var count : integer is 0
-        |
-        |if flag then
-        |    count := count + 1
-        |end
-        |print count
-        |while count < 5 loop
-        |    count := count + 1
-        |    print count
-        |end
-        |""".stripMargin
-    )
-
-    println("\n" + "=" * 60)
-    println("preson case")
-      llvmShowcase(
-    """
-      |type Bebra is record
-      |  var name : integer
-      |end
-      |type Person is record
-      | var x : Bebra
-      | var age : integer
-      |end
-      |routine foo(r: Person) : Person is
-      |  r.age := 10
-      |  r.x.name := 101
-      |  r
-      |end
-      |var p1 : Person
-      |var res is foo(p1)
-      |print res.x.name
-      |""".stripMargin
-  )
-
-    println("\n" + "=" * 60)
-
-
-  private def parserShowcase(source: String): Unit =
-    Lexer.tokenize(source) match
-      case Left(er) => println(er)
-      case Right(tokens) =>
-        println(tokens)
-        val program = SyntaxAnalyzer.analyze(tokens)
-        println(parser.ASTPrinter.format(program))
-
-  private def semanticShowcase(source: String): Unit =
-    println() // Add spacing between examples
-    Lexer.tokenize(source) match
-      case Left(er) => println(s"Lexer error: $er")
-      case Right(tokens) =>
-        println("=== Tokens ===")
-        println(tokens)
-        println("\n=== Parsed AST ===")
-        val program = SyntaxAnalyzer.analyze(tokens)
-        println(parser.ASTPrinter.format(program))
-        println(s"\nDeclarations count: ${program.declarations.length}")
-        program.declarations.foreach {
-          case d: parser.structures.StatementDeclaration =>
-            println(s"  StatementDeclaration with ${d.statements.length} statements")
-          case d =>
-            println(s"  ${d.getClass.getSimpleName}")
-        }
-        println("\n=== Semantic Analysis ===")
-        val result = SemanticAnalyzer.analyze(program)
-        if result.errors.nonEmpty then
-          println(s"Found ${result.errors.length} error(s):")
-          result.errors.zipWithIndex.foreach { case (error, idx) =>
-            println(s"  [${idx + 1}] ${error.getMessage}")
-          }
-        else
-          println("No semantic errors found!")
-        println("\n=== Optimized Program ===")
-        result.optimizedProgram match
-          case Some(optimized) =>
-            if optimized.declarations.isEmpty then
-              println("(Empty program - all declarations were removed as unused)")
-              println("Note: This happens when variables are declared but never referenced.")
-            else
-              println(parser.ASTPrinter.format(optimized))
-              println(s"Optimized declarations: ${optimized.declarations.length}")
-          case None =>
-            println("(No optimized program available)")
 
   private def llvmShowcase(source: String): Unit =
     println() // Add spacing
@@ -149,6 +54,8 @@ object Main:
     Lexer.tokenize(source) match
       case Left(er) => println(s"Lexer error: $er")
       case Right(tokens) =>
+        println("tokens:")
+        tokens.foreach(println)
         println("=== Parsing ===")
         val program = SyntaxAnalyzer.analyze(tokens)
         println("\nAST:")
@@ -165,9 +72,10 @@ object Main:
           println("\nCannot generate LLVM code due to semantic errors.")
         else
           println("No semantic errors found!")
+          println(s"Optimized AST: ${parser.ASTPrinter.format(semResult.optimizedProgram.getOrElse(program))}")
 
           println("\n=== LLVM IR Code Generation ===")
-          val llvmIR = LLVMCodeGenerator.generate(program)
+          val llvmIR = LLVMCodeGenerator.generate(semResult.optimizedProgram.getOrElse(program))
           println(llvmIR)
 
           println("\n=== Save to file ===")
