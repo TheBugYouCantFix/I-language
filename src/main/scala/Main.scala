@@ -16,8 +16,7 @@ object Main:
 //    )
 
     llvmShowcase(
-      """
-        |routine fac(n: integer): integer is
+     """|routine fac(x: integer): integer is
         | if n = 0 or n = 1
         | then n
         | else n * fac(n - 1)
@@ -27,7 +26,7 @@ object Main:
         |var res is fac(5)
         |print res
         |""".stripMargin)
-//      llvmShowcase(
+//     llvmShowcase(
 //        """
 //          |routine isEven(x: integer): boolean is
 //          | print x

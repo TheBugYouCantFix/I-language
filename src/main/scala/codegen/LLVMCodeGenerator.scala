@@ -472,7 +472,7 @@ object LLVMCodeGenerator {
     case ParenthesizedExpression(e) =>
       generateExpression(e, state)
     
-    case Relation(left, comparisons) =>
+    case Relation(left, comparisons, logicalOps) =>
       val (st1, leftCode, leftReg, leftType) = generateSimple(left, state)
       val (st2, resultCode, resultReg, resultType) = if comparisons.isEmpty then
         // No comparisons, just return the left value as-is (not converted to boolean)
@@ -484,7 +484,15 @@ object LLVMCodeGenerator {
           val opStr = comparisonOpToLLVM(op)
           (st2, acc + rightCode + s"  $cmpReg = icmp $opStr i32 $prevReg, $rightReg\n", cmpReg, "i1")
         }
-      (st2, resultCode, resultReg, resultType)
+      // Handle logical operators
+      val (st3, finalCode, finalReg, finalType) = logicalOps.foldLeft((st2, resultCode, resultReg, resultType)) { case ((st, acc, prevReg, prevType), (op, rightRelation)) =>
+        val (st1, rightCode, rightReg, rightType) = generateExpression(rightRelation, st)
+        val (st2, rightBoolCode, rightBoolReg) = ensureBoolean(rightReg, rightType, st1)
+        val (st3, opReg) = st2.nextRegister()
+        val opStr = logicalOpToLLVM(op)
+        (st3, acc + rightCode + rightBoolCode + s"  $opReg = $opStr i1 $prevReg, $rightBoolReg\n", opReg, "i1")
+      }
+      (st3, finalCode, finalReg, finalType)
     
     case Simple(left, operations) =>
       generateSimple(Simple(left, operations), state)
@@ -634,6 +642,11 @@ object LLVMCodeGenerator {
     case Or => "or"
     case Xor => "xor"
 
+  private def logicalOpToLLVM(op: LogicalOperator): String = op match
+    case Or => "or"
+    case And => "and"
+    case Xor => "xor"
+
   private def comparisonOpToLLVM(op: ComparisonOperator): String = op match
     case LessThan => "slt"
     case LessThanOrEqual => "sle"
@@ -752,7 +765,7 @@ object LLVMCodeGenerator {
       }
     case parser.structures.Factor(left, ops) if ops.isEmpty => extractIntLiteral(left)
     case parser.structures.Simple(left, ops) if ops.isEmpty => extractIntLiteral(left)
-    case parser.structures.Relation(left, comps) if comps.isEmpty => extractIntLiteral(left)
+    case parser.structures.Relation(left, comps, logicalOps) if comps.isEmpty && logicalOps.isEmpty => extractIntLiteral(left)
     case parser.structures.ParenthesizedExpression(inner) => extractIntLiteral(inner)
     case _ => None
 
@@ -782,8 +795,8 @@ object LLVMCodeGenerator {
     case RoutineCallExpression(id, _) =>
       state.functions.get(id).flatMap(_.returnType)
     case ParenthesizedExpression(e) => inferExpressionType(e, state)
-    case Relation(left, Nil) => inferExpressionType(left, state)
-    case Relation(_, _) => Some(BooleanType)
+    case Relation(left, Nil, Nil) => inferExpressionType(left, state)
+    case Relation(_, _, _) => Some(BooleanType)
     case Simple(left, _) => inferExpressionType(left, state)
     case Factor(left, _) => inferExpressionType(left, state)
     case Summand(primary, _, _) => inferExpressionType(primary, state)

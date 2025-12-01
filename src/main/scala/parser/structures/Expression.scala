@@ -4,7 +4,8 @@ import parser.*
 
 case class Relation(
   left: Simple,
-  comparisons: List[(ComparisonOperator, Simple)]
+  comparisons: List[(ComparisonOperator, Simple)],
+  logicalOps: List[(LogicalOperator, Relation)]
 ) extends Expression
 
 case class Simple(

@@ -50,7 +50,11 @@ object Lexer:
     "real" -> TokenType.Real,
     "boolean" -> TokenType.Boolean,
     "true" -> TokenType.True,
-    "false" -> TokenType.False
+    "false" -> TokenType.False,
+    "and" -> TokenType.And,
+    "or" -> TokenType.Or,
+    "xor" -> TokenType.Xor,
+    "not" -> TokenType.Not
   )
 
   def tokenize(source: String): Either[LexerError, List[Token]] =

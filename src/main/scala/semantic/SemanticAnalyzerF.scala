@@ -231,9 +231,10 @@ object SemanticAnalyzer {
             val sUnd = st.addError(SemanticError(s"Undeclared routine: '$id'"))
             args.foldLeft(sUnd) { (s0, a) => val (s1, _) = inferType(a, s0, context); s1 }
       case ParenthesizedExpression(inner) => validateExpr(inner, st)
-      case Relation(left, comps) =>
+      case Relation(left, comps, logicalOps) =>
         val st1 = validateExpr(left, st)
-        comps.foldLeft(st1) { case (s0, (_, sm)) => validateExpr(sm, s0) }
+        val st2 = comps.foldLeft(st1) { case (s0, (_, sm)) => validateExpr(sm, s0) }
+        logicalOps.foldLeft(st2) { case (s0, (_, rel)) => validateExpr(rel, s0) }
       case Simple(left, ops) =>
         val st1 = validateExpr(left, st)
         ops.foldLeft(st1) { case (s0, (_, f)) => validateExpr(f, s0) }
@@ -254,7 +255,9 @@ object SemanticAnalyzer {
         case ModifiablePrimaryNode(id, _, _) => state.withTable(state.table.markVariableUsed(id))
     case RoutineCallExpression(_, args)  => args.foldLeft(state) { (st, e) => markUsageInExpr(e, st, context) }
     case ParenthesizedExpression(e)      => markUsageInExpr(e, state, context)
-    case Relation(l, comps)              => comps.foldLeft(markUsageInExpr(l, state, context)) { case (st, (_, s)) => markUsageInExpr(s, st, context) }
+    case Relation(l, comps, logicalOps)  => 
+      val st1 = comps.foldLeft(markUsageInExpr(l, state, context)) { case (st, (_, s)) => markUsageInExpr(s, st, context) }
+      logicalOps.foldLeft(st1) { case (st, (_, rel)) => markUsageInExpr(rel, st, context) }
     case Simple(l, ops)                  => ops.foldLeft(markUsageInExpr(l, state, context)) { case (st, (_, f)) => markUsageInExpr(f, st, context) }
     case Factor(l, ops)                  => ops.foldLeft(markUsageInExpr(l, state, context)) { case (st, (_, sm)) => markUsageInExpr(sm, st, context) }
     case Summand(p, _, _)                => markUsageInExpr(p, state, context)
@@ -313,8 +316,8 @@ object SemanticAnalyzer {
       case Some(r) => (state, r.returnType)
       case None    => (state, None)  // Don't report error here - validateExpr will handle it
     case ParenthesizedExpression(e)      => inferType(e, state, context)
-    case Relation(left, Nil)             => inferType(left, state, context)
-    case Relation(_, _)                  => (state, Some(BooleanType))
+    case Relation(left, Nil, Nil)        => inferType(left, state, context)
+    case Relation(_, _, _)               => (state, Some(BooleanType))
     case Simple(left, ops) =>
       val (st1, lt) = inferType(left, state, context)
       ops.foldLeft((st1, lt)) { case ((st, ct), (op, f)) =>
@@ -453,8 +456,8 @@ object SemanticAnalyzer {
 
   // Constant evaluation (subset)
   private def evaluateConstant(expr: Expression, table: SymbolTable): Option[Int] = expr match
-    case Relation(left, Nil) => evaluateConstant(left, table)
-    case Relation(_, _)      => None
+    case Relation(left, Nil, Nil) => evaluateConstant(left, table)
+    case Relation(_, _, _)       => None
     case IntegerLiteral(v) => Some(v)
     case ParenthesizedExpression(e) => evaluateConstant(e, table)
     case Simple(left, ops) =>
@@ -519,7 +522,8 @@ object SemanticAnalyzer {
   private def optimizeRelation(expr: Relation, table: SymbolTable): Relation =
     val left2 = optimizeSimple(expr.left, table)
     val comps2 = expr.comparisons.map { case (op, s) => (op, optimizeSimple(s, table)) }
-    Relation(left2, comps2)
+    val logicalOps2 = expr.logicalOps.map { case (op, rel) => (op, optimizeRelation(rel, table)) }
+    Relation(left2, comps2, logicalOps2)
 
   private def intToFactor(v: Int): Factor = Factor(Summand(IntegerLiteral(v), None, isNot = false), Nil)
   private def intToSimple(v: Int): Simple = Simple(intToFactor(v), Nil)

@@ -23,8 +23,13 @@ object SyntaxAnalyzer:
                 case Right((s1, rd)) =>
                     val withStmts = if stmtsAcc.nonEmpty then StatementDeclaration(stmtsAcc.reverse) :: declsAcc else declsAcc
                     loop(s1, rd :: withStmts, Nil)
-                case Left(_) =>
+                case Left(err) =>
                     // Try simple declaration (var/type)
+                    // If it's a routine, we should have parsed it, so log the error
+                    if state.peek.exists(_.tkType == TokenType.Routine) then
+                        // This is a routine that failed to parse - return the error
+                        Left(err)
+                    else
                     parseSimpleDeclaration(state) match
                         case Right((s2, sd)) =>
                             val withStmts = if stmtsAcc.nonEmpty then StatementDeclaration(stmtsAcc.reverse) :: declsAcc else declsAcc
@@ -287,7 +292,7 @@ object SyntaxAnalyzer:
             for
                 (s, rHead) <- parseRoutineHeader(state)
                 b <- peekAndCheck(s)(_.tkType == TokenType.Is)
-                (s, rBody) <- if b then parseRoutineBody(s).map(_.map(Some(_))) else Right((s, None))
+                (s, rBody) <- if b then parseRoutineBody(s).map(_.map(Some(_))) else Right((s, None: Option[RoutineBody]))
                 s <- discardSpecific(s)(_.tkType == TokenType.End)  // Consume routine's closing 'end'
             yield (s, RoutineDeclaration(rHead, rBody))
 
@@ -310,14 +315,22 @@ object SyntaxAnalyzer:
                                 (s, type_) <- if b then parseType(afterR.discardN()).map(_.map(Some(_))) else Right((afterR, None))
                             yield (s, RoutineHeader(idName, Nil, type_))
                         case false =>
-                            for
-                                (s, params) <- parseParameters(nextState)
-                                s <- discardSpecific(s)(_.tkType == TokenType.RightParen)
-                                b <- peekAndCheck(s)(_.tkType == TokenType.Colon)
-                                (s, type_) <- if b then parseType(s.discardN()).map(_.map(Some(_))) else Right((s, None))
-                            yield (s, RoutineHeader(idName, params, type_))
+                            parseParameters(nextState) match
+                                case Left(err) => Left(CompilerError(s"Failed to parse parameters in routine '$idName': ${err.message}"))
+                                case Right((s, params)) =>
+                                    discardSpecific(s)(_.tkType == TokenType.RightParen) match
+                                        case Left(err) => Left(CompilerError(s"Expected ')' after parameters in routine '$idName': ${err.message}"))
+                                        case Right(s2) =>
+                                            peekAndCheck(s2)(_.tkType == TokenType.Colon) match
+                                                case Left(err) => Left(CompilerError(s"Error checking for return type in routine '$idName': ${err.message}"))
+                                                case Right(b) =>
+                                                    val typeResult: Either[CompilerError, (ParserState, Option[Type])] = 
+                                                        if b then parseType(s2.discardN()).map(_.map(Some(_))) else Right((s2, None: Option[Type]))
+                                                    typeResult match
+                                                        case Left(err) => Left(CompilerError(s"Failed to parse return type in routine '$idName': ${err.message}"))
+                                                        case Right((s3, type_)) => Right((s3, RoutineHeader(idName, params, type_)))
                     }
-                case _ => Left(CompilerError("Parse error"))
+                case (tokens, _) => Left(CompilerError(s"Failed to parse routine header: expected 'routine', identifier, '(', but got tokens: $tokens (next: ${state.peek})"))
 
         def parseRoutineBody(state: ParserState): ParseResult[RoutineBody] =
             state.advanceN() match
@@ -368,7 +381,7 @@ object SyntaxAnalyzer:
         def parseParameters(state: ParserState): ParseResult[List[ParameterDeclaration]] =
             def loop(state: ParserState, acc: List[ParameterDeclaration]): ParseResult[List[ParameterDeclaration]] =
                 peekAndCheck(state)(_.tkType == TokenType.Comma) match
-                    case Left(_) => Left(CompilerError("Failed to parse routine body"))
+                    case Left(err) => Left(CompilerError(s"Failed to parse parameters: ${err.message}"))
                     case Right(true) => parseParameterDeclaration(state.discardN()).flatMap {
                         case (s, paramDecl) => loop(s, paramDecl :: acc)
                     }
@@ -390,7 +403,7 @@ object SyntaxAnalyzer:
                     parseType(nextState).map {
                         _.map(type_ => ParameterDeclaration(idName, type_))
                     }
-                case _ => Left(CompilerError("Parse error"))
+                case (tokens, _) => Left(CompilerError(s"Failed to parse parameter declaration: expected identifier and colon, but got: $tokens"))
 
         def parseBody(state: ParserState): ParseResult[Body] =
             def loop(state: ParserState, simpleDecls: List[SimpleDeclaration], statements: List[Statement]): ParseResult[Body] =
@@ -422,23 +435,47 @@ object SyntaxAnalyzer:
                 case TokenType.Neq  => Some(NotEqual)
                 case _ => None
 
-            def loop(s: ParserState, left: Simple, acc: List[(ComparisonOperator, Simple)]): ParseResult[Relation] =
+            def logicalOpOf(t: TokenType): Option[LogicalOperator] = t match
+                case TokenType.Or => Some(Or)
+                case TokenType.And => Some(And)
+                case TokenType.Xor => Some(Xor)
+                case _ => None
+
+            def parseComparisonChain(s: ParserState, left: Simple, acc: List[(ComparisonOperator, Simple)]): ParseResult[(Simple, List[(ComparisonOperator, Simple)])] =
                 s.peek match
                     case Some(Token(tk, _, _)) =>
                         comparisonOf(tk) match
                             case Some(op) =>
-                                parseSimple(s.discardN()).flatMap { case (ns, right) => loop(ns, left, (op -> right) :: acc) }
-                            case None => Right((s, Relation(left, acc.reverse)))
-                    case None => Right((s, Relation(left, acc.reverse)))
+                                parseSimple(s.discardN()).flatMap { case (ns, right) => parseComparisonChain(ns, left, (op -> right) :: acc) }
+                            case None => Right((s, (left, acc.reverse)))
+                    case None => Right((s, (left, acc.reverse)))
 
-            parseSimple(state).flatMap { case (s, left) => loop(s, left, Nil) }
+            def parseLogicalChain(s: ParserState, leftRelation: Relation, acc: List[(LogicalOperator, Relation)]): ParseResult[Relation] =
+                s.peek match
+                    case Some(Token(tk, _, _)) =>
+                        logicalOpOf(tk) match
+                            case Some(op) =>
+                                // Parse the next relation (which may itself have logical operators)
+                                parseSimple(s.discardN()).flatMap { case (ns, leftSimple) =>
+                                    parseComparisonChain(ns, leftSimple, Nil).flatMap { case (ns2, (simple, comparisons)) =>
+                                        val rightRelation = Relation(simple, comparisons, Nil)
+                                        parseLogicalChain(ns2, leftRelation, (op -> rightRelation) :: acc)
+                                    }
+                                }
+                            case None => Right((s, Relation(leftRelation.left, leftRelation.comparisons, acc.reverse)))
+                    case None => Right((s, Relation(leftRelation.left, leftRelation.comparisons, acc.reverse)))
+
+            parseSimple(state).flatMap { case (s, leftSimple) =>
+                parseComparisonChain(s, leftSimple, Nil).flatMap { case (s2, (simple, comparisons)) =>
+                    val firstRelation = Relation(simple, comparisons, Nil)
+                    parseLogicalChain(s2, firstRelation, Nil)
+                }
+            }
 
         def parseSimple(state: ParserState): ParseResult[Simple] =
             def binOpOf(t: TokenType): Option[BinaryOperator] = t match
                 case TokenType.Plus => Some(Plus)
                 case TokenType.Minus => Some(Minus)
-                case TokenType.Or => Some(Or)
-                case TokenType.Xor => Some(Xor)
                 case _ => None
 
             def loop(s: ParserState, left: Factor, acc: List[(BinaryOperator, Factor)]): ParseResult[Simple] =
@@ -457,7 +494,6 @@ object SyntaxAnalyzer:
                 case TokenType.Mul => Some(Multiply)
                 case TokenType.Div => Some(Divide)
                 case TokenType.Mod => Some(Modulo)
-                case TokenType.And => Some(And)
                 case _ => None
 
             def loop(s: ParserState, left: Summand, acc: List[(BinaryOperator, Summand)]): ParseResult[Factor] =

@@ -188,6 +188,11 @@ object ASTPrinter:
     case Equal => "=="
     case NotEqual => "!="
 
+  private def logicalOpToString(op: LogicalOperator): String = op match
+    case Or => "or"
+    case And => "and"
+    case Xor => "xor"
+
   private def binOpToString(op: BinaryOperator): String = op match
     case Plus => "+"
     case Minus => "-"
