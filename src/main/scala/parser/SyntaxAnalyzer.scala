@@ -4,8 +4,9 @@ import lexer.Token
 import parser.structures.*
 import parser.parsers.ParserState
 import lexer.TokenType
+import compiler.CompilerError
 
-type ParserError = Unit // TODO: implement parser error
+type ParserError = CompilerError
 type ParseResult[R] = Either[ParserError, (ParserState, R)]
 
 extension [A](p: (ParserState, A))
@@ -13,10 +14,10 @@ extension [A](p: (ParserState, A))
         case (s, a) => (s, f(a))
 
 object SyntaxAnalyzer:
-    def analyze(tokens: List[Token]): Program =
+    def analyze(tokens: List[Token]): Either[CompilerError, Program] =
         import Parser.*
         @annotation.tailrec
-        def loop(state: ParserState, declsAcc: List[Declaration], stmtsAcc: List[Statement]): (ParserState, List[Declaration]) =
+        def loop(state: ParserState, declsAcc: List[Declaration], stmtsAcc: List[Statement]): Either[CompilerError, (ParserState, List[Declaration])] =
             // Try routine declaration first
             parseRoutineDeclaration(state) match
                 case Right((s1, rd)) =>
@@ -38,22 +39,21 @@ object SyntaxAnalyzer:
                                     state.peek match
                                         case None =>
                                             // Proper end of input – just wrap up accumulated statements.
-                                            (state, (if stmtsAcc.nonEmpty then StatementDeclaration(stmtsAcc.reverse) :: declsAcc else declsAcc))
+                                            Right((state, (if stmtsAcc.nonEmpty then StatementDeclaration(stmtsAcc.reverse) :: declsAcc else declsAcc)))
                                         case Some(unexpected) =>
-                                            throw new RuntimeException(s"Parser error: unexpected token '${unexpected}'")
+                                            Left(CompilerError(s"Parser error: unexpected token '${unexpected}'"))
 
-        val (_, decls) = loop(ParserState(tokens), Nil, Nil)
-        Program(decls.reverse)
+        loop(ParserState(tokens), Nil, Nil).map { case (_, decls) => Program(decls.reverse) }
 
     object Parser:
-        private def peekAndCheck(state: ParserState)(p: Token => Boolean) =
+        private def peekAndCheck(state: ParserState)(p: Token => Boolean) = 
             state.peek match
                 case Some(t) => Right(p(t))
-                case None    => Left(())
+                case None    => Left(CompilerError("Unexpected end of input"))
 
         private def discardSpecific(state: ParserState)(p: Token => Boolean): Either[ParserError, ParserState] =
             peekAndCheck(state)(p).flatMap {
-                b => if b then Right(state.discardN()) else Left(())
+                b => if b then Right(state.discardN()) else Left(CompilerError("Unexpected token"))
             }
 
         private def discardSpecificN(state: ParserState)(ps: List[Token => Boolean]): Either[ParserError, ParserState] =
@@ -88,8 +88,8 @@ object SyntaxAnalyzer:
                                     case false => Right((s, None))
                                 }
                             yield (s, VariableDeclaration(idName, Some(varType), initOpt))
-                        case _ => Left(())
-                case _ => Left(())
+                        case _ => Left(CompilerError("Parse error"))
+                case _ => Left(CompilerError("Parse error"))
 
         def parseTypeDeclaration(state: ParserState): ParseResult[TypeDeclaration] =
             state.advanceN(3) match
@@ -104,7 +104,7 @@ object SyntaxAnalyzer:
                     parseType(nextState).map {
                         _.map(type_ => TypeDeclaration(idName, type_))
                     }
-                case _ => Left(())
+                case _ => Left(CompilerError("Parse error"))
 
         def parseType(state: ParserState): ParseResult[Type] =
             def parseRecordType(acc: List[VariableDeclaration], state: ParserState): Either[ParserError, (ParserState, List[VariableDeclaration])] = {
@@ -114,7 +114,7 @@ object SyntaxAnalyzer:
                     case Some(_) => parseVariableDeclaration(state).flatMap {
                         case (nextState, varDecl) => parseRecordType(varDecl :: acc, nextState)
                     }
-                    case None => Left(())
+                    case None => Left(CompilerError("Unexpected end of input in record type"))
             }
 
             state.advanceN() match
@@ -135,13 +135,13 @@ object SyntaxAnalyzer:
                                     for
                                         (afterSize, size) <- parseExpression(afterLBracket)
                                         isNextBracket     <- peekAndCheck(afterSize)(_.tkType == TokenType.RightBracket)
-                                        (s, type_)        <- if isNextBracket then parseType(afterSize.discardN()) else Left(())
+                                        (s, type_)        <- if isNextBracket then parseType(afterSize.discardN()) else Left(CompilerError("Expected ']' in array type"))
                                     yield (s, ArrayType(Some(size), type_))
-                                case None => Left(())
-                        case _ => Left(())
+                                case None => Left(CompilerError("Unexpected end of input in array type"))
+                        case _ => Left(CompilerError("Parse error"))
                 case (Token(TokenType.Identifier, idName, _) :: Nil, nextState) =>
                     Right((nextState, TypeAlias(idName)))
-                case _ => Left(())
+                case _ => Left(CompilerError("Parse error"))
 
         def parseStatement(state: ParserState): ParseResult[Statement] =
             parseAssignment(state)  orElse
@@ -163,11 +163,11 @@ object SyntaxAnalyzer:
                 state.peek match
                     case Some(Token(TokenType.RightParen, _, _)) => Right((state.discardN(), acc.reverse))
                     case Some(Token(TokenType.Comma, _, _)) =>
-                        if acc == Nil then Left(()) else parseExpression(state.discardN()).flatMap {
+                        if acc == Nil then Left(CompilerError("Empty argument list in routine call")) else parseExpression(state.discardN()).flatMap {
                             case (s, e) => parseArguments(s, e :: acc)
                         }
-                    case Some(_) => Left(())
-                    case None => Left(())
+                    case Some(_) => Left(CompilerError("Unexpected token in routine call arguments"))
+                    case None => Left(CompilerError("Unexpected end of input in routine call arguments"))
 
             state.advanceN() match
                 case (Token(TokenType.Identifier, idName, _) :: Nil, nextState) =>
@@ -182,9 +182,9 @@ object SyntaxAnalyzer:
                                         (s, args)     <- parseArguments(s, firstArg :: Nil)
                                     yield (s, RoutineCall(idName, args))
                             }
-                        case false => Left(())
+                        case false => Left(CompilerError("Parse error"))
                     }
-                case _ => Left(())
+                case _ => Left(CompilerError("Parse error"))
 
         def parseWhileLoop(state: ParserState): ParseResult[WhileLoop] =
             for
@@ -200,7 +200,7 @@ object SyntaxAnalyzer:
                 s <- discardSpecific(state)(_.tkType == TokenType.For)
                 (s, idName) <- s.advanceN() match
                     case (Token(TokenType.Identifier, idName, _) :: Nil, s) => Right((s, idName))
-                    case _ => Left(())
+                    case _ => Left(CompilerError("Parse error"))
                 s <- discardSpecific(s)(_.tkType == TokenType.In)
                 (s, range) <- parseRange(s)
                 (s, isReverse) <- peekAndCheck(s)(_.tkType == TokenType.Reverse).map {
@@ -233,7 +233,7 @@ object SyntaxAnalyzer:
                             case _ => (s, members, arrays)
                     val (endState, mems, arrs) = loop(nextState, Nil, Nil)
                     Right((endState, ModifiablePrimaryNode(idName, mems.reverse, arrs.reverse)))
-                case _ => Left(())
+                case _ => Left(CompilerError("Parse error"))
 
         def parseRange(state: ParserState): ParseResult[Range] =
             for
@@ -317,7 +317,7 @@ object SyntaxAnalyzer:
                                 (s, type_) <- if b then parseType(s.discardN()).map(_.map(Some(_))) else Right((s, None))
                             yield (s, RoutineHeader(idName, params, type_))
                     }
-                case _ => Left(())
+                case _ => Left(CompilerError("Parse error"))
 
         def parseRoutineBody(state: ParserState): ParseResult[RoutineBody] =
             state.advanceN() match
@@ -329,7 +329,7 @@ object SyntaxAnalyzer:
                         peekAndCheck(state)(_.tkType == TokenType.End) match
                             case Right(true) =>
                                 // End of body, return what we have WITHOUT consuming 'end'
-                                if decls == Nil && stmts == Nil then Left(())
+                                if decls == Nil && stmts == Nil then Left(CompilerError("Empty routine body"))
                                 else Right((state, JustRoutineBody(Body(decls.reverse, stmts.reverse))))
                             case _ =>
                                 // Try to parse a declaration, statement, or expression
@@ -349,7 +349,7 @@ object SyntaxAnalyzer:
                                                 // More code follows, treat expression as a statement and continue
                                                 parseBodyWithOptionalExpr(nextState, decls, ReturnStatement(expr) :: stmts)
                                     case Left(_) =>
-                                        if decls == Nil && stmts == Nil then Left(())
+                                        if decls == Nil && stmts == Nil then Left(CompilerError("Empty routine body"))
                                         else Right((state, JustRoutineBody(Body(decls.reverse, stmts.reverse))))
 
                     parseBodyWithOptionalExpr(nextState, Nil, Nil) match
@@ -363,12 +363,12 @@ object SyntaxAnalyzer:
                     parseExpression(nextState).map {
                         _.map(e => RoutineBodyExpression(e))
                     }
-                case _ => Left(())
+                case _ => Left(CompilerError("Parse error"))
 
         def parseParameters(state: ParserState): ParseResult[List[ParameterDeclaration]] =
             def loop(state: ParserState, acc: List[ParameterDeclaration]): ParseResult[List[ParameterDeclaration]] =
                 peekAndCheck(state)(_.tkType == TokenType.Comma) match
-                    case Left(_) => Left(())
+                    case Left(_) => Left(CompilerError("Failed to parse routine body"))
                     case Right(true) => parseParameterDeclaration(state.discardN()).flatMap {
                         case (s, paramDecl) => loop(s, paramDecl :: acc)
                     }
@@ -390,19 +390,19 @@ object SyntaxAnalyzer:
                     parseType(nextState).map {
                         _.map(type_ => ParameterDeclaration(idName, type_))
                     }
-                case _ => Left(())
+                case _ => Left(CompilerError("Parse error"))
 
         def parseBody(state: ParserState): ParseResult[Body] =
             def loop(state: ParserState, simpleDecls: List[SimpleDeclaration], statements: List[Statement]): ParseResult[Body] =
                 // Check for terminating tokens before trying to parse
                 state.peek match
                     case Some(Token(TokenType.End, _, _)) | Some(Token(TokenType.Else, _, _)) =>
-                        if simpleDecls == Nil && statements == Nil then Left(())
+                        if simpleDecls == Nil && statements == Nil then Left(CompilerError("Empty body"))
                         else Right((state, Body(simpleDecls.reverse, statements.reverse)))
                     case _ =>
                         parseSimpleDeclaration(state) orElse parseStatement(state) match
                             case Left(_) =>
-                                if simpleDecls == Nil && statements == Nil then Left(())
+                                if simpleDecls == Nil && statements == Nil then Left(CompilerError("Empty body"))
                                 else Right((state, Body(simpleDecls.reverse, statements.reverse)))
                             case Right((nextState, s: Statement)) => loop(nextState, simpleDecls, s :: statements)
                             case Right((nextState, s: SimpleDeclaration)) => loop(nextState, s :: simpleDecls, statements)
@@ -502,10 +502,10 @@ object SyntaxAnalyzer:
                             parseRoutineCall(state).map { case (s, rc) => (s, RoutineCallExpression(rc.identifier, rc.arguments)) }
                         case _ =>
                             parseModifiablePrimary(state).map { case (s, mp) => (s, ModifiablePrimaryExpression(mp)) }
-                case _ => Left(())
+                case _ => Left(CompilerError("Parse error"))
 
         def parseSign(state: ParserState): ParseResult[Sign] =
             state.peek match
                 case Some(Token(TokenType.Plus, _, _))  => Right((state.discardN(), Positive))
                 case Some(Token(TokenType.Minus, _, _)) => Right((state.discardN(), Negative))
-                case _ => Left(())
+                case _ => Left(CompilerError("Parse error"))

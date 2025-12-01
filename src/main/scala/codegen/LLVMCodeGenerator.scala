@@ -3,6 +3,7 @@ package codegen
 import parser.structures.*
 import cats.data.State
 import scala.annotation.tailrec
+import compiler.CompilerError
 
 object LLVMCodeGenerator {
   
@@ -54,7 +55,7 @@ object LLVMCodeGenerator {
   
   type CodeGen[A] = State[CodeGenState, A]
 
-  def generate(program: Program): String = {
+  def generate(program: Program): Either[CompilerError, String] = {
     val initialState = CodeGenState()
     
     // First pass: collect types and function headers
@@ -66,43 +67,47 @@ object LLVMCodeGenerator {
     }
     
     // Second pass: generate function definitions
-    val (state2, functionCode) = program.declarations.foldLeft((state1, "")) { case ((st, acc), decl) =>
-      decl match
-        case RoutineDeclaration(header, Some(body)) =>
-          val (newSt, code) = generateFunction(header, body, st)
-          (newSt, acc + code)
-        case _ => (st, acc)
+    program.declarations.foldLeft(Right((state1, "")): Either[CompilerError, (CodeGenState, String)]) { case (accEither, decl) =>
+      accEither.flatMap { case (st, acc) =>
+        decl match
+          case RoutineDeclaration(header, Some(body)) =>
+            generateFunction(header, body, st).map { case (newSt, code) =>
+              (newSt, acc + code)
+            }
+          case _ => Right((st, acc))
+      }
+    }.flatMap { case (state2, functionCode) =>
+      // Third pass: generate main function
+      generateMain(program, state2).map { case (state3, mainCode) =>
+        // Build final module - format strings must come before functions that use them
+        val stdLib = "\n; Standard library declarations\n" +
+          "declare i32 @printf(i8*, ...)\n" +
+          "declare i32 @putchar(i32)\n"
+        
+        val formatStrings = "\n; Format strings\n" +
+          "@.str.int = private unnamed_addr constant [4 x i8] c\"%d\\0A\\00\"\n" +
+          "@.str.double = private unnamed_addr constant [5 x i8] c\"%lf\\0A\\00\"\n" +
+          "@.str.bool = private unnamed_addr constant [4 x i8] c\"%d\\0A\\00\"\n"
+        
+        "; LLVM IR generated from ILang\n" +
+        "target datalayout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128\"\n" +
+        "target triple = \"x86_64-pc-linux-gnu\"\n\n" +
+        formatStrings +
+        stdLib +
+        functionCode +
+        mainCode
+      }
     }
-    
-    // Third pass: generate main function
-    val (state3, mainCode) = generateMain(program, state2)
-    
-    // Build final module - format strings must come before functions that use them
-    val stdLib = "\n; Standard library declarations\n" +
-      "declare i32 @printf(i8*, ...)\n" +
-      "declare i32 @putchar(i32)\n"
-    
-    val formatStrings = "\n; Format strings\n" +
-      "@.str.int = private unnamed_addr constant [4 x i8] c\"%d\\0A\\00\"\n" +
-      "@.str.double = private unnamed_addr constant [5 x i8] c\"%lf\\0A\\00\"\n" +
-      "@.str.bool = private unnamed_addr constant [4 x i8] c\"%d\\0A\\00\"\n"
-    
-    "; LLVM IR generated from ILang\n" +
-      "target datalayout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128\"\n" +
-      "target triple = \"x86_64-pc-linux-gnu\"\n\n" +
-      formatStrings +
-      stdLib +
-      functionCode +
-      mainCode
   }
   
-  private def generateMain(program: Program, state: CodeGenState): (CodeGenState, String) = {
+  private def generateMain(program: Program, state: CodeGenState): Either[CompilerError, (CodeGenState, String)] = {
     val sb = new StringBuilder
     sb.append("\n; Main function\n")
     sb.append("define i32 @main() {\n")
     sb.append("entry:\n")
     
-    val (finalState, code) = program.declarations.foldLeft((state, "")) { case ((st, acc), decl) =>
+    program.declarations.foldLeft(Right((state, "")): Either[CompilerError, (CodeGenState, String)]) { case (accEither, decl) =>
+      accEither.flatMap { case (st, acc) =>
       decl match
         case VariableDeclaration(name, typeOpt, initOpt) =>
           // Infer type from initializer if type is not provided
@@ -121,26 +126,31 @@ object LLVMCodeGenerator {
               // Then generate the expression code
               val (st3, exprCode, valueReg, exprType) = generateExpression(expr, st2)
               val storeCode = s"  store $valueType $valueReg, $allocaType* $reg\n"
-              (st3, acc + allocaCode + exprCode + storeCode)
+              Right((st3, acc + allocaCode + exprCode + storeCode))
             case None =>
               val zeroValue = zeroValueForType(allocaType)
               val storeCode = s"  store $allocaType $zeroValue, $allocaType* $reg\n"
-              (st2, acc + allocaCode + storeCode)
+              Right((st2, acc + allocaCode + storeCode))
         
         case StatementDeclaration(statements) =>
-          val (st1, code) = statements.foldLeft((st, "")) { case ((s, c), stmt) =>
-            val (s1, stmtCode) = generateStatement(stmt, s)
-            (s1, c + stmtCode)
+          statements.foldLeft(Right((st, "")): Either[CompilerError, (CodeGenState, String)]) { case (accEither, stmt) =>
+            accEither.flatMap { case (s, c) =>
+              generateStatement(stmt, s).map { case (s1, stmtCode) =>
+                (s1, c + stmtCode)
+              }
+            }
+          }.map { case (st1, code) =>
+            (st1, acc + code)
           }
-          (st1, acc + code)
         
-        case _ => (st, acc)
+        case _ => Right((st, acc))
+      }
+    }.map { case (finalState, code) =>
+      sb.append(code)
+      sb.append("  ret i32 0\n")
+      sb.append("}\n")
+      (finalState, sb.toString())
     }
-    
-    sb.append(code)
-    sb.append("  ret i32 0\n")
-    sb.append("}\n")
-    (finalState, sb.toString())
   }
 
   private def generateFunctionDecl(header: RoutineHeader, state: CodeGenState): String = {
@@ -149,7 +159,7 @@ object LLVMCodeGenerator {
     s"declare $retType @${header.identifier}($params)\n"
   }
 
-  private def generateFunction(header: RoutineHeader, body: RoutineBody, state: CodeGenState): (CodeGenState, String) = {
+  private def generateFunction(header: RoutineHeader, body: RoutineBody, state: CodeGenState): Either[CompilerError, (CodeGenState, String)] = {
     val state1 = state.setCurrentFunction(Some(header.identifier))
     val retType = header.returnType.map(typeToLLVMType(_, state1)).getOrElse("void")
     val params = header.parameters.map(p => s"${typeToLLVMType(p.parameterType, state1)} %${p.identifier}").mkString(", ")
@@ -172,7 +182,7 @@ object LLVMCodeGenerator {
     }
     sb += paramCode
     
-    val (state3, bodyCode, hasReturn) = body match
+    val bodyResultEither = body match
       case JustRoutineBody(b) =>
         val (st1, declCode) = b.declarations.foldLeft((state2, "")) { case ((st, acc), decl) =>
           decl match
@@ -208,45 +218,50 @@ object LLVMCodeGenerator {
             (b.statements.init, Some(expr))
           case _ => (b.statements, None)
         
-        val (st2, stmtCode) = statementsToProcess.foldLeft((st1, "")) { case ((st, acc), stmt) =>
-          val (st1, code) = generateStatement(stmt, st)
-          (st1, acc + code)
+        statementsToProcess.foldLeft(Right((st1, "")): Either[CompilerError, (CodeGenState, String)]) { case (accEither, stmt) =>
+          accEither.flatMap { case (st, acc) =>
+            generateStatement(stmt, st).map { case (st1, code) =>
+              (st1, acc + code)
+            }
+          }
+        }.flatMap { case (st2, stmtCode) =>
+          val (st3, finalCode, hasRet) = returnStmt match
+            case Some(expr) =>
+              // Generate return from expression
+              val (stExpr, exprCode, exprReg, exprType) = generateExpression(expr, st2)
+              val retType = header.returnType.map(typeToLLVMType(_, stExpr)).getOrElse("i32")
+              val retCode = s"  ret $retType $exprReg\n"
+              (stExpr, stmtCode + exprCode + retCode, true)
+            case None =>
+              (st2, stmtCode, stmtCode.contains("ret "))
+          
+          Right((st3, declCode + finalCode, hasRet))
         }
-        
-        val (st3, finalCode, hasRet) = returnStmt match
-          case Some(expr) =>
-            // Generate return from expression
-            val (stExpr, exprCode, exprReg, exprType) = generateExpression(expr, st2)
-            val retType = header.returnType.map(typeToLLVMType(_, stExpr)).getOrElse("i32")
-            val retCode = s"  ret $retType $exprReg\n"
-            (stExpr, stmtCode + exprCode + retCode, true)
-          case None =>
-            (st2, stmtCode, stmtCode.contains("ret "))
-        
-        (st3, declCode + finalCode, hasRet)
       
       case RoutineBodyExpression(expr) =>
         val (st1, code, valueReg, valueType) = generateExpression(expr, state2)
         val retCode = header.returnType match
           case Some(t) => s"  ret ${typeToLLVMType(t, st1)} $valueReg\n"
           case None => "  ret void\n"
-        (st1, code + retCode, true)
+        Right((st1, code + retCode, true))
     
-    sb += bodyCode
-    if !hasReturn then
-      sb += (if retType == "void" then "  ret void\n" else s"  ret $retType 0\n")
-    
-    sb += "}\n"
-    (state3.setCurrentFunction(state.currentFunction), sb)
+    bodyResultEither.map { case (state3, bodyCode, hasReturn) =>
+      sb += bodyCode
+      if !hasReturn then
+        sb += (if retType == "void" then "  ret void\n" else s"  ret $retType 0\n")
+      
+      sb += "}\n"
+      (state3.setCurrentFunction(state.currentFunction), sb.toString)
+    }
   }
 
-  private def generateStatement(stmt: Statement, state: CodeGenState): (CodeGenState, String) = stmt match
+  private def generateStatement(stmt: Statement, state: CodeGenState): Either[CompilerError, (CodeGenState, String)] = stmt match
     case Assignment(target, value) =>
       val (st1, code, valueReg, valueType) = generateExpression(value, state)
       val (st2, targetCode, targetReg) = generateModifiablePrimary(target, st1)
       // Check if target has array accesses - if so, targetReg is already a pointer to the element
       val result = code + targetCode + s"  store $valueType $valueReg, $valueType* $targetReg\n"
-      (st2, result)
+      Right((st2, result))
     
     case RoutineCall(id, args) =>
       val (st1, argCode, argRegs) = args.foldLeft((state, "", List.empty[String])) { case ((st, acc, regs), arg) =>
@@ -262,23 +277,24 @@ object LLVMCodeGenerator {
         s"  call $retType @$id($argsStr)\n"
       else
         s"  $callReg = call $retType @$id($argsStr)\n")
-      (st2, result)
+      Right((st2, result))
     
     case WhileLoop(condition, body) =>
       val (st1, startLabel) = state.nextLabel()
       val (st2, bodyLabel) = st1.nextLabel()
       val (st3, endLabel) = st2.nextLabel()
       val (st4, condCode, condReg, condType) = generateExpression(condition, st3)
-      val (st5, bodyCode) = generateBody(body, st4)
-      val result = s"  br label %$startLabel\n" +
-        s"$startLabel:\n" +
-        condCode +
-        s"  br i1 $condReg, label %$bodyLabel, label %$endLabel\n" +
-        s"$bodyLabel:\n" +
-        bodyCode +
-        s"  br label %$startLabel\n" +
-        s"$endLabel:\n"
-      (st5, result)
+      generateBody(body, st4).map { case (st5, bodyCode) =>
+        val result = s"  br label %$startLabel\n" +
+          s"$startLabel:\n" +
+          condCode +
+          s"  br i1 $condReg, label %$bodyLabel, label %$endLabel\n" +
+          s"$bodyLabel:\n" +
+          bodyCode +
+          s"  br label %$startLabel\n" +
+          s"$endLabel:\n"
+        (st5, result)
+      }
     
     case ForLoop(loopVar, range, isReverse, body) =>
       val (st1, startCode, startReg, startType) = generateExpression(range.start, state)
@@ -293,32 +309,33 @@ object LLVMCodeGenerator {
       val (st8, currentReg) = st7.nextRegister()
       val (st9, cmpReg) = st8.nextRegister()
       val st10 = st9.addVariable(loopVar, currentReg)
-      val (st11, bodyCode) = generateBody(body, st10)
-      val (st12, nextReg) = st11.nextRegister()
-      val result = startCode +
-        endCode +
-        s"  %$loopVarReg = alloca i32\n" +
-        s"  store i32 $startReg, i32* %$loopVarReg\n" +
-        s"  br label %$startLabel\n" +
-        s"$startLabel:\n" +
-        s"  $currentReg = load i32, i32* %$loopVarReg\n" +
-        (if isReverse then
-          s"  $cmpReg = icmp sge i32 $currentReg, $endReg\n"
-        else
-          s"  $cmpReg = icmp sle i32 $currentReg, $endReg\n") +
-        s"  br i1 $cmpReg, label %$bodyLabel, label %$endLabel\n" +
-        s"$bodyLabel:\n" +
-        bodyCode +
-        s"  br label %$incLabel\n" +
-        s"$incLabel:\n" +
-        (if isReverse then
-          s"  $nextReg = sub i32 $currentReg, 1\n"
-        else
-          s"  $nextReg = add i32 $currentReg, 1\n") +
-        s"  store i32 $nextReg, i32* %$loopVarReg\n" +
-        s"  br label %$startLabel\n" +
-        s"$endLabel:\n"
-      (st12, result)
+      generateBody(body, st10).map { case (st11, bodyCode) =>
+        val (st12, nextReg) = st11.nextRegister()
+        val result = startCode +
+          endCode +
+          s"  %$loopVarReg = alloca i32\n" +
+          s"  store i32 $startReg, i32* %$loopVarReg\n" +
+          s"  br label %$startLabel\n" +
+          s"$startLabel:\n" +
+          s"  $currentReg = load i32, i32* %$loopVarReg\n" +
+          (if isReverse then
+            s"  $cmpReg = icmp sge i32 $currentReg, $endReg\n"
+          else
+            s"  $cmpReg = icmp sle i32 $currentReg, $endReg\n") +
+          s"  br i1 $cmpReg, label %$bodyLabel, label %$endLabel\n" +
+          s"$bodyLabel:\n" +
+          bodyCode +
+          s"  br label %$incLabel\n" +
+          s"$incLabel:\n" +
+          (if isReverse then
+            s"  $nextReg = sub i32 $currentReg, 1\n"
+          else
+            s"  $nextReg = add i32 $currentReg, 1\n") +
+          s"  store i32 $nextReg, i32* %$loopVarReg\n" +
+          s"  br label %$startLabel\n" +
+          s"$endLabel:\n"
+        (st12, result)
+      }
     
     case IfStatement(condition, thenBody, elseBody) =>
       val (st1, condCode, condReg, condType) = generateExpression(condition, state)
@@ -327,59 +344,64 @@ object LLVMCodeGenerator {
       val (st3, thenLabel) = st2.nextLabel()
       val (st4, elseLabel) = st3.nextLabel()
       val (st5, endLabel) = st4.nextLabel()
-      val (st6, thenCode) = generateBody(thenBody, st5)
-      val (st7, elseCode) = elseBody match
-        case Some(eb) =>
-          val (st, code) = generateBody(eb, st6)
-          (st, code)
-        case None => (st6, "")
-      val result = condCode + boolCode +
-        (elseBody match
-          case Some(_) =>
-            s"  br i1 $boolReg, label %$thenLabel, label %$elseLabel\n" +
-            s"$thenLabel:\n" +
-            thenCode +
-            s"  br label %$endLabel\n" +
-            s"$elseLabel:\n" +
-            elseCode +
-            s"  br label %$endLabel\n"
-          case None =>
-            s"  br i1 $boolReg, label %$thenLabel, label %$endLabel\n" +
-            s"$thenLabel:\n" +
-            thenCode +
-            s"  br label %$endLabel\n") +
-        s"$endLabel:\n"
-      (st7, result)
+      generateBody(thenBody, st5).flatMap { case (st6, thenCode) =>
+        val elseBodyResult = elseBody match
+          case Some(eb) => generateBody(eb, st6)
+          case None => Right((st6, ""))
+        elseBodyResult.map { case (st7, elseCode) =>
+          val result = condCode + boolCode +
+            (elseBody match
+              case Some(_) =>
+                s"  br i1 $boolReg, label %$thenLabel, label %$elseLabel\n" +
+                s"$thenLabel:\n" +
+                thenCode +
+                s"  br label %$endLabel\n" +
+                s"$elseLabel:\n" +
+                elseCode +
+                s"  br label %$endLabel\n"
+              case None =>
+                s"  br i1 $boolReg, label %$thenLabel, label %$endLabel\n" +
+                s"$thenLabel:\n" +
+                thenCode +
+                s"  br label %$endLabel\n") +
+            s"$endLabel:\n"
+          (st7, result)
+        }
+      }
     
     case PrintStatement(values) =>
-      val (finalState, code) = values.foldLeft((state, "")) { case ((st, acc), expr) =>
-        val (st1, exprCode, reg, regType) = generateExpression(expr, st)
-        val (st2, conversionCode, printableReg, printableType, formatSym, formatLen) = regType match
-          case "i32" =>
-            (st1, "", reg, "i32", "@.str.int", 4)
-          case "double" =>
-            (st1, "", reg, "double", "@.str.double", 5)
-          case "i1" =>
-            val (stConv, convReg) = st1.nextRegister()
-            (stConv, s"  $convReg = zext i1 $reg to i32\n", convReg, "i32", "@.str.bool", 4)
-          case other =>
-            throw new RuntimeException(s"Unsupported value type '$other' in print statement.")
-        val (st3, formatPtr) = st2.nextRegister()
-        val formatCode = s"  $formatPtr = getelementptr inbounds [$formatLen x i8], [$formatLen x i8]* $formatSym, i32 0, i32 0\n"
-        val (st4, callReg) = st3.nextRegister()
-        val callCode = s"  $callReg = call i32 (i8*, ...) @printf(i8* $formatPtr, $printableType $printableReg)\n"
-        (st4, acc + exprCode + conversionCode + formatCode + callCode)
+      values.foldLeft(Right((state, "")): Either[CompilerError, (CodeGenState, String)]) { case (accEither, expr) =>
+        accEither.flatMap { case (st, acc) =>
+          val (st1, exprCode, reg, regType) = generateExpression(expr, st)
+          val resultEither = regType match
+            case "i32" =>
+              Right((st1, "", reg, "i32", "@.str.int", 4))
+            case "double" =>
+              Right((st1, "", reg, "double", "@.str.double", 5))
+            case "i1" =>
+              val (stConv, convReg) = st1.nextRegister()
+              Right((stConv, s"  $convReg = zext i1 $reg to i32\n", convReg, "i32", "@.str.bool", 4))
+            case other =>
+              Left(CompilerError(s"Unsupported value type '$other' in print statement."))
+          resultEither.map { case (st2, conversionCode, printableReg, printableType, formatSym, formatLen) =>
+            val (st3, formatPtr) = st2.nextRegister()
+            val formatCode = s"  $formatPtr = getelementptr inbounds [$formatLen x i8], [$formatLen x i8]* $formatSym, i32 0, i32 0\n"
+            val (st4, callReg) = st3.nextRegister()
+            val callCode = s"  $callReg = call i32 (i8*, ...) @printf(i8* $formatPtr, $printableType $printableReg)\n"
+            (st4, acc + exprCode + conversionCode + formatCode + callCode)
+          }
+        }
       }
-      (finalState, code)
+      
     
     case ReturnStatement(value) =>
       // ReturnStatement should only appear in routine bodies and is handled specially there
       // If it appears here, it's an error, but we'll generate code anyway
       val (st1, exprCode, exprReg, exprType) = generateExpression(value, state)
       val retCode = s"  ret $exprType $exprReg\n"
-      (st1, exprCode + retCode)
+      Right((st1, exprCode + retCode))
 
-  private def generateBody(body: Body, state: CodeGenState): (CodeGenState, String) = {
+  private def generateBody(body: Body, state: CodeGenState): Either[CompilerError, (CodeGenState, String)] = {
     val (st1, declCode) = body.declarations.foldLeft((state, "")) { case ((st, acc), decl) =>
       decl match
         case VariableDeclaration(name, typeOpt, initOpt) =>
@@ -408,11 +430,15 @@ object LLVMCodeGenerator {
           (st3, code)
         case _ => (st, acc)
     }
-    val (st2, stmtCode) = body.statements.foldLeft((st1, "")) { case ((st, acc), stmt) =>
-      val (st1, code) = generateStatement(stmt, st)
-      (st1, acc + code)
+    body.statements.foldLeft(Right((st1, "")): Either[CompilerError, (CodeGenState, String)]) { case (accEither, stmt) =>
+      accEither.flatMap { case (st, acc) =>
+        generateStatement(stmt, st).map { case (st1, code) =>
+          (st1, acc + code)
+        }
+      }
+    }.map { case (st2, stmtCode) =>
+      (st2, declCode + stmtCode)
     }
-    (st2, declCode + stmtCode)
   }
 
   private def generateExpression(expr: Expression, state: CodeGenState): (CodeGenState, String, String, String) = expr match
