@@ -14,7 +14,7 @@ object Main:
 //        |print a
 //        |""".stripMargin
 //    )
-
+//
 //    llvmShowcase(
 //     """|routine fac(x: integer): integer is
 //        | if n = 0 or n = 1
@@ -87,14 +87,6 @@ object Main:
 //        |""".stripMargin
 //    )
 
-//      llvmShowcase(
-//        """
-//          |var n is 5
-//          |for i in 1 .. n loop
-//          | print i
-//          |end
-//          |""".stripMargin)
-
     // array of records
     llvmShowcase(
       """
@@ -123,6 +115,20 @@ object Main:
         |end
         |""".stripMargin)
 
+    // factorial
+//    llvmShowcase(
+//      """
+//        |routine fac(n: integer): integer is
+//        | var acc is 1
+//        | for i in 2 .. n loop
+//        |   acc := acc * i
+//        | end
+//        | acc
+//        |end
+//        |
+//        |var res is fac(6)
+//        |print res
+//        |""".stripMargin)
 
   private def llvmShowcase(source: String): Unit =
     println() // Add spacing
