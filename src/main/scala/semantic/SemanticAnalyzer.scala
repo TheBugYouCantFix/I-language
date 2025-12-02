@@ -1,7 +1,6 @@
 package semantic
 
 import parser.structures.*
-import cats.syntax.all.*
 import cats.data.State
 import scala.annotation.tailrec
 
