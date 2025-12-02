@@ -159,7 +159,7 @@ object Main:
               println(s"Optimized AST: ${parser.ASTPrinter.format(semResult.optimizedProgram.getOrElse(program))}")
 
               println("\n=== LLVM IR Code Generation ===")
-              LLVMCodeGenerator.generate(program) match
+              LLVMCodeGenerator.generate(semResult.optimizedProgram.getOrElse(program)) match
                 case Left(error) =>
                   println(s"Code generation error: ${error.message}")
                   error.cause.foreach { cause =>
