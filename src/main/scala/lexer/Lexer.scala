@@ -99,14 +99,14 @@ object Lexer:
 
     if lexeme.matches(identifierPattern)
     then Right((endState, Token(tokenType, lexeme, startLocation)))
-    else Left(LexerError("Unallowed identifier"))
+    else Left(LexerError("Unallowed identifier", state.currentLocation))
 
   private def lexNumber(state: LexerState, startLocation: Location): Either[LexerError, (LexerState, Token)] =
     @tailrec
     def consumeDigits(current: LexerState, dotEncounteredBefore: Boolean = false): Either[LexerError, LexerState] =
       current.currentChar match
         case Some(c) if c.isDigit => consumeDigits(current.advance, dotEncounteredBefore)
-        case Some(c) if c == '.' && dotEncounteredBefore => Left(LexerError("Unallowed use of '.'"))
+        case Some(c) if c == '.' && dotEncounteredBefore => Left(LexerError("Unallowed use of '.'", state.currentLocation))
         case _ => Right(current)
 
     val startPos = state.pos
@@ -179,7 +179,7 @@ object Lexer:
           case _ => Right((afterGt, Token(TokenType.Gt, ">", startLocation)))
 
       case Some(c) =>
-        Left(LexerError(s"Unexpected character '$c' at $startLocation"))
+        Left(LexerError(s"Unexpected character '$c' at $startLocation", state.currentLocation))
 
       case None =>
         Right((state, Token(TokenType.EndOfFile, "", startLocation)))

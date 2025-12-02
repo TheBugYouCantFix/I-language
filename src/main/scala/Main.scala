@@ -15,17 +15,17 @@ object Main:
 //        |""".stripMargin
 //    )
 
-    llvmShowcase(
-     """|routine fac(x: integer): integer is
-        | if n = 0 or n = 1
-        | then n
-        | else n * fac(n - 1)
-        | end
-        |end
-        |
-        |var res is fac(5)
-        |print res
-        |""".stripMargin)
+//    llvmShowcase(
+//     """|routine fac(x: integer): integer is
+//        | if n = 0 or n = 1
+//        | then n
+//        | else n * fac(n - 1)
+//        | end
+//        |end
+//        |
+//        |var res is fac(5)
+//        |print res
+//        |""".stripMargin)
 //     llvmShowcase(
 //        """
 //          |routine isEven(x: integer): boolean is
@@ -46,13 +46,87 @@ object Main:
 //        |print res
 //        |""".stripMargin)
 
+    // record modification func
+//    llvmShowcase(
+//      """
+//        |type Person is record
+//        | var name : integer
+//        | var age : integer
+//        |end
+//        |routine foo(r: Person): Person is
+//        |  r.age := 10
+//        |  r
+//        |end
+//        |var p1 : Person
+//        |var res is foo(p1)
+//        |print res.age
+//        |""".stripMargin
+//    )
+
+    // nested records
+//    llvmShowcase(
+//      """
+//        |type Person is record
+//        | var name : integer
+//        | var age : integer
+//        |end
+//        |type A is record
+//        | var p : Person
+//        |end
+//        |routine foo(a: A): A is
+//        |  a.p.age := 2
+//        |  a
+//        |end
+//        |var p1 : Person
+//        |p1.age := 1
+//        |var a : A
+//        |a.p := p1
+//        |print p1.age
+//        |var res is foo(a)
+//        |print res.p.age
+//        |""".stripMargin
+//    )
+
+//      llvmShowcase(
+//        """
+//          |var n is 5
+//          |for i in 1 .. n loop
+//          | print i
+//          |end
+//          |""".stripMargin)
+
+    // array of records
+    llvmShowcase(
+      """
+        |type Person is record
+        | var age : integer
+        | var weight : integer
+        |end
+        |
+        |var n is 5
+        |type PersonArr is array[5] Person
+        |
+        |var arr: PersonArr
+        |for i in 0 .. n loop
+        | var p : Person
+        | p.age := i * 2
+        | p.weight := i + 3
+        | arr[i] := p
+        |end
+        |
+        |for i in 0 .. n loop
+        | var res is arr[i]
+        | print res.age, res.weight
+        |end
+        |""".stripMargin)
+
 
   private def llvmShowcase(source: String): Unit =
     println() // Add spacing
     println(c)
     c = c + 1
     Lexer.tokenize(source) match
-      case Left(er) => println(s"Lexer error: $er")
+      case Left(er) => println(s"Lexer error: $er}")
       case Right(tokens) =>
         println("tokens:")
         tokens.foreach(println)
@@ -82,7 +156,7 @@ object Main:
               println(s"Optimized AST: ${parser.ASTPrinter.format(semResult.optimizedProgram.getOrElse(program))}")
 
               println("\n=== LLVM IR Code Generation ===")
-              LLVMCodeGenerator.generate(semResult.optimizedProgram.getOrElse(program)) match
+              LLVMCodeGenerator.generate(program) match
                 case Left(error) =>
                   println(s"Code generation error: ${error.message}")
                   error.cause.foreach { cause =>
