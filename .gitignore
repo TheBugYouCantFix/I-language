@@ -16,6 +16,8 @@ out/
 !**/src/main/**/out/
 !**/src/test/**/out/
 
+.metals/
+
 ### Eclipse ###
 .apt_generated
 .classpath

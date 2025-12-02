@@ -1,0 +1,88 @@
+Program
+├── Declaration*
+│   ├── SimpleDeclaration
+│   │   ├── VariableDeclaration
+│   │   │   ├── Identifier
+│   │   │   ├── Type? (optional if initializer present)
+│   │   │   └── Expression? (optional initializer)
+│   │   └── TypeDeclaration
+│   │       ├── Identifier
+│   │       └── Type
+│   └── RoutineDeclaration
+│       ├── RoutineHeader
+│       │   ├── Identifier
+│       │   ├── Parameters
+│       │   │   └── ParameterDeclaration*
+│       │   │       ├── Identifier
+│       │   │       └── Type
+│       │   └── Type? (optional return type)
+│       └── RoutineBody? (optional for forward declaration)
+│           ├── Body
+│           │   ├── SimpleDeclaration*
+│           │   └── Statement*
+│           └── Expression? (alternative simple return)
+│
+├── Type
+│   ├── PrimitiveType
+│   │   ├── "integer"
+│   │   ├── "real"
+│   │   └── "boolean"
+│   ├── UserType
+│   │   ├── ArrayType
+│   │   │   ├── Expression? (optional size)
+│   │   │   └── Type
+│   │   └── RecordType
+│   │       └── VariableDeclaration*
+│   └── Identifier (type alias)
+│
+├── Statement
+│   ├── Assignment
+│   │   ├── ModifiablePrimary
+│   │   └── Expression
+│   ├── RoutineCall
+│   │   ├── Identifier
+│   │   └── Expression* (arguments)
+│   ├── WhileLoop
+│   │   ├── Expression (condition)
+│   │   └── Body
+│   ├── ForLoop
+│   │   ├── Identifier (loop variable)
+│   │   ├── Range
+│   │   │   ├── Expression (start)
+│   │   │   └── Expression (end)
+│   │   ├── "reverse"? (optional)
+│   │   └── Body
+│   ├── IfStatement
+│   │   ├── Expression (condition)
+│   │   ├── Body (then branch)
+│   │   └── Body? (else branch)
+│   └── PrintStatement
+│       └── Expression* (values to print)
+│
+├── Expression
+│   ├── Relation
+│   │   ├── Simple
+│   │   │   ├── Factor
+│   │   │   │   ├── Summand
+│   │   │   │   │   ├── Primary
+│   │   │   │   │   │   ├── Literal
+│   │   │   │   │   │   │   ├── IntegerLiteral
+│   │   │   │   │   │   │   ├── RealLiteral
+│   │   │   │   │   │   │   └── BooleanLiteral ("true" | "false")
+│   │   │   │   │   │   ├── ModifiablePrimary
+│   │   │   │   │   │   ├── RoutineCall
+│   │   │   │   │   │   └── ParenthesizedExpression
+│   │   │   │   │   │       └── Expression
+│   │   │   │   │   ├── Sign? (optional + or -)
+│   │   │   │   │   └── "not"? (optional)
+│   │   │   │   └── BinaryOperator* ("+" | "-")
+│   │   │   └── BinaryOperator* ("*" | "/" | "%")
+│   │   └── ComparisonOperator* ("<" | "<=" | ">" | ">=" | "=" | "/=")
+│   └── LogicalOperator* ("and" | "or" | "xor")
+│
+└── ModifiablePrimary
+    ├── Identifier
+    ├── MemberAccess*
+    │   └── Identifier
+    └── ArrayAccess*
+        └── Expression
