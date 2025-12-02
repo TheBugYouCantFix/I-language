@@ -103,14 +103,17 @@ object Main:
         | var weight : integer
         |end
         |
-        |var n is 5
+        |var n is 4
         |type PersonArr is array[5] Person
         |
         |var arr: PersonArr
         |for i in 0 .. n loop
         | var p : Person
         | p.age := i * 2
-        | p.weight := i + 3
+        | if i = n
+        | then p.weight := i + 10
+        | else p.weight := i + 3
+        | end
         | arr[i] := p
         |end
         |
